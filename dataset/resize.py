@@ -2,7 +2,7 @@ import cv2
 import os
 
 
-input_folder = 'images_filtered'
+input_folder = 'dataset/large'
 output_folder = 'dataset/small'
 
 if not os.path.exists(output_folder):
@@ -12,7 +12,7 @@ for filename in os.listdir(input_folder):
     image = cv2.imread(f'{input_folder}/{filename}')
 
     height, width, _ = image.shape
-    print('Original Dimensions : ', image.shape)
+    print(f'Original Dimensions : {filename} ', image.shape)
 
     # Define the desired width and height
     new_width = width // 4
