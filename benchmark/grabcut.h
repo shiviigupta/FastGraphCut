@@ -1,11 +1,12 @@
 
-#include <stdint.h>
+#include <cstdint>
 
 typedef struct {
     uint8_t r;
     uint8_t g;
     uint8_t b;
 } pixel_t;
+
 
 typedef struct {
     uint64_t x;
@@ -20,7 +21,7 @@ typedef struct {
     pixel_t *array;
 } image_t;
 
-pixel_t *img_at(const image_t *img, uint64_t row, uint64_t col) {
+pixel_t *img_at( image_t *img, uint64_t row, uint64_t col) {
     uint64_t index = row * img->cols + col;
     return &(img->array[index]);
 }
@@ -35,16 +36,39 @@ double dot_diff(pixel_t *p0, pixel_t *p1) {
 // Numbers in theory could be utilized for checkMask
 typedef enum __attribute__((__packed__)) {
     GC_BGD = 0, 
-    GC_FGD = 1, 
-    GC_PR_BGD = 2, 
-    GC_PR_FGD = 3
+        GC_FGD = 1, 
+        GC_PR_BGD = 2, 
+        GC_PR_FGD = 3
 } MaskVal;
 
-typedef MaskVal* mask_t;
+typedef struct {
+    int rows;
+    int cols;
+    MaskVal* array;
+} mask_t;
+
+MaskVal mask_at( mask_t *mask, int row, int col) {
+    return mask->array[row * mask->cols + col];
+}
+
+void mask_set(mask_t *mask, int row, int col, MaskVal val) {
+    mask->array[row * mask->cols + col] = val;
+}
+
 typedef double* weight_t;
 
 
+// For kmeans
+typedef struct {
+    float r, g, b;
+} Centroid;
 
+float distance_squared(pixel_t p, Centroid c) {
+    float dr = p.r - c.r;
+    float dg = p.g - c.g;
+    float db = p.b - c.b;
+    return dr * dr + dg * dg + db * db;
+}
 
 void grabCut(pixel_t *img);
 
