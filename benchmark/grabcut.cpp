@@ -495,9 +495,10 @@ static void estimateSegmentation( GCGraph<double>& graph, mask_t *mask )
     }
 }
 
-void grabCut( image_t *img, mask_t *mask, rect_t rect, int iterCount)
+void grabCut( image_t *img, rect_t rect, int iterCount)
 {
     GMM_t *bgdGMM, *fgdGMM;
+    mask_t *mask;
 
     initEmptyGMM( bgdGMM );
     initEmptyGMM( fgdGMM );
