@@ -72,7 +72,7 @@ double doSomething(GMM_t *gmm,  pixel_t color) {
     return res;
 }
 
-int whichComponent(GMM_t *gmm,  pixel_t color) 
+int whichComponent(GMM_t *gmm,  pixel_t color)
 {
     int k = 0;
     double max = 0;
@@ -124,8 +124,8 @@ void endLearning(GMM_t *gmm)
             gmm->coefs[ci] = (double)n/gmm->totalSampleCount;
 
             double* m = gmm->mean + 3*ci;
-            m[0] = gmm->sums[ci][0] * inv_n; 
-            m[1] = gmm->sums[ci][1] * inv_n; 
+            m[0] = gmm->sums[ci][0] * inv_n;
+            m[1] = gmm->sums[ci][1] * inv_n;
             m[2] = gmm->sums[ci][2] * inv_n;
 
             double* c = gmm->cov + 9*ci;
@@ -253,7 +253,7 @@ static void initMaskWithRect(mask_t *mask, rect_t rect, image_t *img) {
     }
 }
 
-void kmeans(pixel_t *pixels, int num_pixels, int k, int max_iters, int *labels) 
+void kmeans(pixel_t *pixels, int num_pixels, int k, int max_iters, int *labels)
 {
     labels = (int *) malloc(num_pixels * sizeof(int));
     // Allocate centroids
@@ -348,14 +348,14 @@ static void initGMMs( image_t *img,  mask_t *mask, GMM_t *bgdGMM, GMM_t *fgdGMM 
     {
         int num_clusters = COMPONENT_COUNT;
         num_clusters = std::min(num_clusters, (int)bgdSamples.size());
-        kmeans( (pixel_t *) &bgdSamples[0], (int)bgdSamples.size(), kMeansItCount, 
+        kmeans( (pixel_t *) &bgdSamples[0], (int)bgdSamples.size(), kMeansItCount,
                num_clusters, bgdLabels);
     }
 
     {
         int num_clusters = COMPONENT_COUNT;
         num_clusters = std::min(num_clusters, (int)fgdSamples.size());
-        kmeans( (pixel_t *) &fgdSamples[0], (int)fgdSamples.size(), kMeansItCount, 
+        kmeans( (pixel_t *) &fgdSamples[0], (int)fgdSamples.size(), kMeansItCount,
                num_clusters, fgdLabels);
     }
 
@@ -525,5 +525,9 @@ void grabCut( image_t *img, rect_t rect, int iterCount)
         constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph );
         estimateSegmentation( graph, mask );
     }
+}
+
+int main() {
+    return 0;
 }
 
