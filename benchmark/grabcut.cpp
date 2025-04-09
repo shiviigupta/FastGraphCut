@@ -567,7 +567,7 @@ void grabCut(image_t *img, rect_t rect, int iterCount)
 
 int main()
 {
-    cv::Mat image = cv::imread("~/dataset/small/24077.jpg");
+    cv::Mat image = cv::imread("../dataset/small/24077.jpg");
 
     if (image.empty())
     {
