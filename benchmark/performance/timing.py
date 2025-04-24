@@ -1,6 +1,6 @@
 import os
 import subprocess
-directory_path = "../dataset/large/"
+directory_path = "../dataset/small/"
 file_list = os.listdir(directory_path)
 
 km_fgd = 0
@@ -8,7 +8,7 @@ km_bgd = 0
 calcbeta = 0
 calcweights = 0
 
-output_file = open("timing_large.txt", "w")
+output_file = open("timing_small.txt", "w")
 
 for file in file_list:
     if file.endswith(".jpg"):

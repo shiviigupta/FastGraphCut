@@ -772,7 +772,7 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    std::cout << "Loaded Image" << std::endl;
+    std::cout << "Loaded Image " << file_path << " " << std::endl;
 
     image_t *img = (image_t *)malloc(sizeof(image_t));
     img->rows = image.rows;
