@@ -8,6 +8,8 @@
 #include "graph.hpp"
 #include <opencv2/opencv.hpp>
 #include <iostream>
+#include <chrono>
+#include <filesystem>
 
 #define COMPONENT_COUNT 5
 using namespace std;
@@ -178,22 +180,22 @@ void endLearning(GMM_t *gmm)
         }
     }
     // Print GMM means
-    std::cout << "GMM Means:" << std::endl;
+    // std::cout << "GMM Means:" << std::endl;
     for (int ci = 0; ci < COMPONENT_COUNT; ci++)
     {
         double *m = gmm->mean + 3 * ci;
-        std::cout << "Component " << ci << ": (" << m[0] << ", " << m[1] << ", " << m[2] << ")" << std::endl;
+        // std::cout << "Component " << ci << ": (" << m[0] << ", " << m[1] << ", " << m[2] << ")" << std::endl;
     }
 
     // Print GMM covariance matrices
-    std::cout << "GMM Covariance Matrices:" << std::endl;
+    // std::cout << "GMM Covariance Matrices:" << std::endl;
     for (int ci = 0; ci < COMPONENT_COUNT; ci++)
     {
         double *c = gmm->cov + 9 * ci;
-        std::cout << "Component " << ci << ":" << std::endl;
-        std::cout << "[" << c[0] << ", " << c[1] << ", " << c[2] << "]" << std::endl;
-        std::cout << "[" << c[3] << ", " << c[4] << ", " << c[5] << "]" << std::endl;
-        std::cout << "[" << c[6] << ", " << c[7] << ", " << c[8] << "]" << std::endl;
+        // std::cout << "Component " << ci << ":" << std::endl;
+        // std::cout << "[" << c[0] << ", " << c[1] << ", " << c[2] << "]" << std::endl;
+        // std::cout << "[" << c[3] << ", " << c[4] << ", " << c[5] << "]" << std::endl;
+        // std::cout << "[" << c[6] << ", " << c[7] << ", " << c[8] << "]" << std::endl;
     }
     
 }
@@ -432,28 +434,39 @@ static void initGMMs(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_t *fgdGMM)
                 fgdSamples.push_back(*img_at(img, r, c));
         }
     }
-    cout << "before kmeans\n";
-    cout << "bgd samples size: " << bgdSamples.size() << "\n";
-    cout << "fgd samples size: " << fgdSamples.size() << "\n";
+    // cout << "before kmeans\n";
+    // cout << "bgd samples size: " << bgdSamples.size() << "\n";
+    // cout << "fgd samples size: " << fgdSamples.size() << "\n";
     
     int *bgdLabels = (int*)malloc(img->rows * img->cols * sizeof(int));
     int *fgdLabels = (int*)malloc(img->rows * img->cols * sizeof(int));
     // cout << "first for loop\n";
 
     // replace with kmeans kernel - maybe use streams?
+    
 
     {
         int num_clusters = COMPONENT_COUNT;
         num_clusters = std::min(num_clusters, (int)bgdSamples.size());
+        auto start = std::chrono::high_resolution_clock::now();
         kmeans(bgdSamples.data(), bgdSamples.size(), k, num_clusters, kMeansItCount,
                bgdLabels);
+        auto end = std::chrono::high_resolution_clock::now();
+
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "K-means for background took: " << duration.count() << " microseconds" << std::endl;
     }
 
     {
         int num_clusters = COMPONENT_COUNT;
         num_clusters = std::min(num_clusters, (int)fgdSamples.size());
+
+        auto start = std::chrono::high_resolution_clock::now();
         kmeans(fgdSamples.data(), fgdSamples.size(), k, num_clusters, kMeansItCount,
                fgdLabels);
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "K-means for foreground took: " << duration.count() << " microseconds" << std::endl;
     }
 
     // cout << "done with kmeans?\n";
@@ -464,13 +477,13 @@ static void initGMMs(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_t *fgdGMM)
     {
         addSample(bgdGMM, bgdLabels[i], bgdSamples[i]);
     }
-    std::cout << "BGD GMM means weights after initGMMs" << std::endl;
+    // std::cout << "BGD GMM means weights after initGMMs" << std::endl;
     endLearning(bgdGMM);
 
     initLearning(fgdGMM);
     for (int i = 0; i < (int)fgdSamples.size(); i++)
         addSample(fgdGMM, fgdLabels[i], fgdSamples[i]);
-    std::cout << "FGD GMM means weights after initGMMs" << std::endl;
+    // std::cout << "FGD GMM means weights after initGMMs" << std::endl;
     endLearning(fgdGMM);
 }
 
@@ -520,9 +533,9 @@ static void learnGMMs(image_t *img, mask_t *mask, int *compIdxs, GMM_t *bgdGMM, 
             }
         }
     }
-    std::cout << "BGD GMM means weights after learning:" << std::endl;
+    // std::cout << "BGD GMM means weights after learning:" << std::endl;
     endLearning(bgdGMM);
-    std::cout << "FGD GMM means weights after learning:" << std::endl;
+    // std::cout << "FGD GMM means weights after learning:" << std::endl;
     endLearning(fgdGMM);    
 }
 
@@ -536,9 +549,9 @@ static void constructGCGraph(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_t *f
     int vtxCount = img->cols * img->rows,
         edgeCount = 2 * (4 * img->cols * img->rows - 3 * (img->cols + img->rows) + 2);
 
-    cout << "vertex count: " << vtxCount << "\n";
+    // cout << "vertex count: " << vtxCount << "\n";
     graph.create(vtxCount, edgeCount);
-    std::cout << "Graph created with " << vtxCount << " vertices and " << edgeCount << " edges." << std::endl;
+    // std::cout << "Graph created with " << vtxCount << " vertices and " << edgeCount << " edges." << std::endl;
 
 
     // cout << "created graph in construct function\n";
@@ -600,7 +613,7 @@ static void constructGCGraph(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_t *f
 static void estimateSegmentation(GCGraph<double>& graph, mask_t *mask)
 {
     int flow = graph.maxFlow();
-    cout << "Max flow: " << flow << "\n";
+    // cout << "Max flow: " << flow << "\n";
     for (int r = 0; r < mask->rows; r++)
     {
         for (int c = 0; c < mask->cols; c++)
@@ -609,14 +622,14 @@ static void estimateSegmentation(GCGraph<double>& graph, mask_t *mask)
             if (m == GC_PR_BGD || m == GC_PR_FGD)
             {
                 if (graph.inSourceSegment(r * mask->cols + c /*vertex index*/)) {
-                    cout << "mask[" << r << "][" << c << "] = " << m;
+                    // cout << "mask[" << r << "][" << c << "] = " << m;
                     mask_set(mask, r, c, GC_PR_FGD);
-                    cout << " mask[" << r << "][" << c << "] = GC_PR_FGD\n";
+                    // cout << " mask[" << r << "][" << c << "] = GC_PR_FGD\n";
                 }
                 else {
-                    cout << "mask[" << r << "][" << c << "] = " << m;
+                    // cout << "mask[" << r << "][" << c << "] = " << m;
                     mask_set(mask, r, c, GC_PR_BGD);
-                    cout << " mask[" << r << "][" << c << "] = GC_PR_BGD\n";
+                    // cout << " mask[" << r << "][" << c << "] = GC_PR_BGD\n";
                 }
                     
             }
@@ -661,7 +674,7 @@ void gettingOutput(image_t *img, mask_t *mask, image_t *foreground, image_t *bac
             }
         }
     }
-    std::cout << "Segmentation result: " << fg << " foreground, " << bg << " background pixels." << std::endl;
+    // std::cout << "Segmentation result: " << fg << " foreground, " << bg << " background pixels." << std::endl;
 
 }
 
@@ -669,7 +682,7 @@ void gettingOutput(image_t *img, mask_t *mask, image_t *foreground, image_t *bac
 void grabCut(image_t *img, rect_t rect, image_t *foreground, image_t *background, int iterCount)
 {
     int num_pixels = img->rows * img->cols;
-    std::cout << "grabCut called\n";
+    // std::cout << "grabCut called\n";
 
     GMM_t *bgdGMM, *fgdGMM;
     bgdGMM = (GMM_t *)malloc(sizeof(GMM_t));
@@ -683,9 +696,9 @@ void grabCut(image_t *img, rect_t rect, image_t *foreground, image_t *background
     int *compIdxs = (int *)malloc(num_pixels * sizeof(int));
 
     initMaskWithRect(mask, rect, img);
-    gettingOutput(img, mask, foreground, background);
-    displayImage(foreground);
-    displayImage(background);
+    // gettingOutput(img, mask, foreground, background);
+    // displayImage(foreground);
+    // displayImage(background);
     // cout << "After init mask with rect\n";
     initGMMs(img, mask, bgdGMM, fgdGMM);
     // cout << "init gmms again\n";
@@ -696,46 +709,62 @@ void grabCut(image_t *img, rect_t rect, image_t *foreground, image_t *background
     const double gamma = 50;
     const double lambda = 9 * gamma;
 
-    // how to copy image over to the gpu
-    const double beta = calcBeta(img);
-    std::cout << "Beta: " << beta << std::endl;
-   
     double *leftW, *upleftW, *upW, *uprightW;
     leftW = (double*)calloc(num_pixels, sizeof(double));
     upleftW = (double*)calloc(num_pixels, sizeof(double));
     upW = (double*)calloc(num_pixels, sizeof(double));
     uprightW = (double*)calloc(num_pixels, sizeof(double));
+
+    // how to copy image over to the gpu
+
+    auto start = std::chrono::high_resolution_clock::now();
+    const double beta = calcBeta(img);
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    std::cout << "calcBeta took: " << duration.count() << " microseconds" << std::endl;
+
+    start = std::chrono::high_resolution_clock::now();
     calcNWeights(img, leftW, upleftW, upW, uprightW, beta, gamma);
-    std::cout << "Left edge weights sample:" << std::endl;
-    for (int y = 0; y < 5; ++y) {
-        for (int x = 0; x < 5; ++x) {
-            std::cout << leftW[x + (img->cols)*y] << " ";
-        }
-        std::cout << std::endl;
-    }
+    end = std::chrono::high_resolution_clock::now();
+    duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);    
+    std::cout << "calcNWeights took: " << duration.count() << " microseconds" << std::endl;
+
+
+    // std::cout << "Left edge weights sample:" << std::endl;
+    // for (int y = 0; y < 5; ++y) {
+    //     for (int x = 0; x < 5; ++x) {
+    //         std::cout << leftW[x + (img->cols)*y] << " ";
+    //     }
+    //     std::cout << std::endl;
+    // }
 
     // cout << "After calc nweights\n";
-    std::cout << "Gamma: " << gamma << std::endl;
+    // std::cout << "Gamma: " << gamma << std::endl;
 
     
-    for (int i = 0; i < iterCount; i++) //i< iterCount
-    {
-        GCGraph<double> graph;
-        assignGMMsComponents(img, mask, bgdGMM, fgdGMM, compIdxs);
-        learnGMMs(img, mask, compIdxs, bgdGMM, fgdGMM, i);
-        constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph);
-        estimateSegmentation(graph, mask);
-    }
-    gettingOutput(img, mask, foreground, background);
+    // for (int i = 0; i < iterCount; i++) //i< iterCount
+    // {
+    //     GCGraph<double> graph;
+    //     assignGMMsComponents(img, mask, bgdGMM, fgdGMM, compIdxs);
+    //     learnGMMs(img, mask, compIdxs, bgdGMM, fgdGMM, i);
+    //     constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph);
+    //     estimateSegmentation(graph, mask);
+    // }
+    // gettingOutput(img, mask, foreground, background);
 
-    displayImage(foreground);
-    displayImage(background);
+    // displayImage(foreground);
+    // displayImage(background);
     // cout << "after lop\n";  
 }
 
-int main()
+int main(int argc, char **argv)
 {
-    cv::Mat image = cv::imread("../dataset/large/flower.jpg");
+    string file_path = "../dataset/large/flower.jpg";
+    if (argc == 2) {
+        file_path = argv[1];
+    }
+
+    cv::Mat image = cv::imread(file_path);
 
     if (image.empty())
     {
