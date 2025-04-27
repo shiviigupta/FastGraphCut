@@ -1,0 +1,170 @@
+Loaded Image ../dataset/small/bison.jpg 
+image dimensions: 912 1368
+K-means for background took: 506347 microseconds
+K-means for foreground took: 364015 microseconds
+calcBeta took: 61205 microseconds
+calcNWeights took: 147459 microseconds
+
+
+Loaded Image ../dataset/small/butterfly.jpg 
+image dimensions: 1500 1000
+K-means for background took: 583284 microseconds
+K-means for foreground took: 410676 microseconds
+calcBeta took: 66466 microseconds
+calcNWeights took: 185435 microseconds
+
+
+Loaded Image ../dataset/small/cake.jpg 
+image dimensions: 1440 960
+K-means for background took: 528966 microseconds
+K-means for foreground took: 410703 microseconds
+calcBeta took: 64296 microseconds
+calcNWeights took: 168310 microseconds
+
+
+Loaded Image ../dataset/small/deer.jpg 
+image dimensions: 1394 929
+K-means for background took: 365239 microseconds
+K-means for foreground took: 573159 microseconds
+calcBeta took: 62011 microseconds
+calcNWeights took: 165610 microseconds
+
+
+Loaded Image ../dataset/small/cake2.jpg 
+image dimensions: 1952 1301
+K-means for background took: 927752 microseconds
+K-means for foreground took: 799199 microseconds
+calcBeta took: 117322 microseconds
+calcNWeights took: 295215 microseconds
+
+
+Loaded Image ../dataset/small/dog.jpg 
+image dimensions: 864 1296
+K-means for background took: 326910 microseconds
+K-means for foreground took: 426348 microseconds
+calcBeta took: 53671 microseconds
+calcNWeights took: 133157 microseconds
+
+
+Loaded Image ../dataset/small/coffee.jpg 
+image dimensions: 1495 983
+K-means for background took: 706966 microseconds
+K-means for foreground took: 334742 microseconds
+calcBeta took: 71619 microseconds
+calcNWeights took: 190877 microseconds
+
+
+Loaded Image ../dataset/small/dog2.jpg 
+image dimensions: 1488 992
+K-means for background took: 573886 microseconds
+K-means for foreground took: 499513 microseconds
+calcBeta took: 69540 microseconds
+calcNWeights took: 186528 microseconds
+
+
+Loaded Image ../dataset/small/duck.jpg 
+image dimensions: 1000 1500
+K-means for background took: 733622 microseconds
+K-means for foreground took: 292955 microseconds
+calcBeta took: 76960 microseconds
+calcNWeights took: 179435 microseconds
+
+
+Loaded Image ../dataset/small/elephant.jpg 
+image dimensions: 1000 1500
+K-means for background took: 299860 microseconds
+K-means for foreground took: 798929 microseconds
+calcBeta took: 70493 microseconds
+calcNWeights took: 192160 microseconds
+
+
+Loaded Image ../dataset/small/flower.jpg 
+image dimensions: 656 984
+K-means for background took: 153754 microseconds
+K-means for foreground took: 305165 microseconds
+calcBeta took: 30464 microseconds
+calcNWeights took: 78261 microseconds
+
+
+Loaded Image ../dataset/small/goat.jpg 
+image dimensions: 1000 800
+K-means for background took: 259131 microseconds
+K-means for foreground took: 303298 microseconds
+calcBeta took: 36909 microseconds
+calcNWeights took: 91825 microseconds
+
+
+Loaded Image ../dataset/small/flower2.jpg 
+image dimensions: 1504 1004
+K-means for background took: 486166 microseconds
+K-means for foreground took: 627745 microseconds
+calcBeta took: 72685 microseconds
+calcNWeights took: 184727 microseconds
+
+
+Loaded Image ../dataset/small/hut.jpg 
+image dimensions: 1008 756
+K-means for background took: 306617 microseconds
+K-means for foreground took: 293836 microseconds
+calcBeta took: 37484 microseconds
+calcNWeights took: 94437 microseconds
+
+
+Loaded Image ../dataset/small/motorbike.jpg 
+image dimensions: 1000 1500
+K-means for background took: 689672 microseconds
+K-means for foreground took: 397501 microseconds
+calcBeta took: 69600 microseconds
+calcNWeights took: 176848 microseconds
+
+
+Loaded Image ../dataset/small/museum.jpg 
+image dimensions: 401 601
+K-means for background took: 28698 microseconds
+K-means for foreground took: 148302 microseconds
+calcBeta took: 11053 microseconds
+calcNWeights took: 28592 microseconds
+
+
+Loaded Image ../dataset/small/tiger.jpg 
+image dimensions: 752 500
+K-means for background took: 62272 microseconds
+K-means for foreground took: 227270 microseconds
+calcBeta took: 20836 microseconds
+calcNWeights took: 54007 microseconds
+
+
+Loaded Image ../dataset/small/tiger2.jpg 
+image dimensions: 554 807
+K-means for background took: 150904 microseconds
+K-means for foreground took: 176825 microseconds
+calcBeta took: 21610 microseconds
+calcNWeights took: 56630 microseconds
+
+
+Loaded Image ../dataset/small/tower.jpg 
+image dimensions: 1300 1040
+K-means for background took: 451084 microseconds
+K-means for foreground took: 486686 microseconds
+calcBeta took: 61099 microseconds
+calcNWeights took: 161184 microseconds
+
+
+Loaded Image ../dataset/small/turt.jpg 
+image dimensions: 2048 1365
+K-means for background took: 1052009 microseconds
+K-means for foreground took: 923454 microseconds
+calcBeta took: 130117 microseconds
+calcNWeights took: 338051 microseconds
+
+
+Total time for background: 9193139.00 us
+Total time for foreground: 8800321.00 us
+Total time for Beta calculation: 1205440.00 us
+Total time for Weights calculation: 3108748.00 us
+
+
+Total time for background per image (/50): 183862.78 us
+Total time for foreground per image (/50): 176006.42 us
+Total time for Beta calculation per image (/50): 24108.80 us
+Total time for Weights calculation per image (/50): 62174.96 us
