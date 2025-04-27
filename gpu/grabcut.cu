@@ -8,8 +8,11 @@
 #include "graph.hpp"
 #include <opencv2/opencv.hpp>
 #include <iostream>
+#include <omp.h>
+#include <curand_kernel.h>
 
 #define COMPONENT_COUNT 5
+using namespace std;
 
 typedef struct
 {
@@ -38,11 +41,16 @@ void calcInverseCovAndDeterm(GMM_t *gmm, int ci, double singularFix);
 void initEmptyGMM(GMM_t *gmm)
 {
     int modelSize = 3 /*mean*/ + 9 /*covariance*/ + 1 /*component weight*/;
-    if (gmm != NULL)
+    if (gmm == NULL)
         return;
 
-    gmm = (GMM_t *)malloc(sizeof(GMM_t));
+    // gmm = (GMM_t *)malloc(sizeof(GMM_t));
     gmm->model = (double *)calloc(modelSize * COMPONENT_COUNT, sizeof(double));
+    if (gmm->model == NULL)
+    {
+        std::cerr << "Memory allocation failed!" << std::endl;
+        return; // DO WE NEED THIS?
+    }
 
     gmm->coefs = gmm->model;
     gmm->mean = gmm->coefs + COMPONENT_COUNT;
@@ -96,6 +104,9 @@ int whichComponent(GMM_t *gmm, pixel_t color)
 
 void initLearning(GMM_t *gmm)
 {
+    if (gmm == NULL)
+        return;
+
     for (int ci = 0; ci < COMPONENT_COUNT; ci++)
     {
         gmm->sums[ci][0] = gmm->sums[ci][1] = gmm->sums[ci][2] = 0;
@@ -109,6 +120,18 @@ void initLearning(GMM_t *gmm)
 
 void addSample(GMM_t *gmm, int ci, pixel_t color)
 {
+    if (gmm == NULL)
+    {
+        cout << "gmm is null in addsample\n";
+        return;
+    }
+
+    if (ci < 0 || ci >= COMPONENT_COUNT)
+    {
+        std::cerr << "Invalid component index in addSample: " << ci << std::endl;
+        return;
+    }
+
     gmm->sums[ci][0] += color.r;
     gmm->sums[ci][1] += color.g;
     gmm->sums[ci][2] += color.b;
@@ -127,6 +150,8 @@ void addSample(GMM_t *gmm, int ci, pixel_t color)
 
 void endLearning(GMM_t *gmm)
 {
+    if (gmm == NULL)
+        return;
     for (int ci = 0; ci < COMPONENT_COUNT; ci++)
     {
         int n = gmm->sampleCounts[ci];
@@ -156,10 +181,31 @@ void endLearning(GMM_t *gmm)
             calcInverseCovAndDeterm(gmm, ci, 0.01);
         }
     }
+    // Print GMM means
+    // std::cout << "GMM Means:" << std::endl;
+    // for (int ci = 0; ci < COMPONENT_COUNT; ci++)
+    // {
+    //     double *m = gmm->mean + 3 * ci;
+    //     std::cout << "Component " << ci << ": (" << m[0] << ", " << m[1] << ", " << m[2] << ")" << std::endl;
+    // }
+
+    // Print GMM covariance matrices
+    // std::cout << "GMM Covariance Matrices:" << std::endl;
+    // for (int ci = 0; ci < COMPONENT_COUNT; ci++)
+    // {
+    //     double *c = gmm->cov + 9 * ci;
+    //     std::cout << "Component " << ci << ":" << std::endl;
+    //     std::cout << "[" << c[0] << ", " << c[1] << ", " << c[2] << "]" << std::endl;
+    //     std::cout << "[" << c[3] << ", " << c[4] << ", " << c[5] << "]" << std::endl;
+    //     std::cout << "[" << c[6] << ", " << c[7] << ", " << c[8] << "]" << std::endl;
+    // }
 }
 
 void calcInverseCovAndDeterm(GMM_t *gmm, int ci, double singularFix)
 {
+    if (gmm == NULL)
+        return;
+
     if (gmm->coefs[ci] > 0)
     {
         double *c = gmm->cov + 9 * ci;
@@ -194,23 +240,14 @@ static double calcBeta(image_t *img)
     {
         for (int x = 0; x < img->cols; x++)
         {
-            pixel_t *color = img_at(img, y, x);
-            if (x > 0) // left
-            {
-                beta += dot_diff(color, img_at(img, y, x - 1));
-            }
-            if (y > 0 && x > 0) // upleft
-            {
-                beta += dot_diff(color, img_at(img, y - 1, x - 1));
-            }
-            if (y > 0) // up
-            {
-                beta += dot_diff(color, img_at(img, y - 1, x));
-            }
-            if (y > 0 && x < img->cols - 1) // upright
-            {
-                beta += dot_diff(color, img_at(img, y - 1, x + 1));
-            }
+            if (x > 0)
+                beta += dot_diff_rgb(get_r(img, y, x), get_g(img, y, x), get_b(img, y, x), get_r(img, y, x - 1), get_g(img, y, x - 1), get_b(img, y, x - 1));
+            if (y > 0 && x > 0)
+                beta += dot_diff_rgb(get_r(img, y, x), get_g(img, y, x), get_b(img, y, x), get_r(img, y - 1, x - 1), get_g(img, y - 1, x - 1), get_b(img, y - 1, x - 1));
+            if (y > 0)
+                beta += dot_diff_rgb(get_r(img, y, x), get_g(img, y, x), get_b(img, y, x), get_r(img, y - 1, x), get_g(img, y - 1, x), get_b(img, y - 1, x));
+            if (y > 0 && x < img->cols - 1)
+                beta += dot_diff_rgb(get_r(img, y, x), get_g(img, y, x), get_b(img, y, x), get_r(img, y - 1, x + 1), get_g(img, y - 1, x + 1), get_b(img, y - 1, x + 1));
         }
     }
 
@@ -222,33 +259,32 @@ static double calcBeta(image_t *img)
     return beta;
 }
 
-static void calcNWeights(image_t *img, weight_t leftW, weight_t upleftW, weight_t upW, weight_t uprightW, double beta, double gamma)
+static void calcNWeights(image_t *img, double *leftW, double *upleftW, double *upW, double *uprightW, double beta, double gamma)
 {
     double gammaDivSqrt2 = gamma / sqrt(2.0);
     uint64_t num_pixels = img->rows * img->cols;
-    leftW = (weight_t)calloc(num_pixels, sizeof(double));
-    upleftW = (weight_t)calloc(num_pixels, sizeof(double));
-    upW = (weight_t)calloc(num_pixels, sizeof(double));
-    uprightW = (weight_t)calloc(num_pixels, sizeof(double));
 
     for (int y = 0; y < img->rows; y++)
     {
-        int row_index = y * img->cols;
         for (int x = 0; x < img->cols; x++)
         {
-            pixel_t *color = img_at(img, y, x);
-            leftW[row_index + x] = (x - 1 > 0) ? // left
-                                       gamma * exp(-beta * dot_diff(color, img_at(img, y, x - 1)))
-                                               : 0;
-            upleftW[row_index + x] = (x - 1 >= 0 && y - 1 >= 0) ? // upleft
-                                         gammaDivSqrt2 * exp(-beta * dot_diff(color, img_at(img, y - 1, x - 1)))
-                                                                : 0;
-            upW[row_index + x] = (y - 1 > 0) ? // up
-                                     gamma * exp(-beta * dot_diff(color, img_at(img, y - 1, x)))
-                                             : 0;
-            uprightW[row_index + x] = (x + 1 < img->cols && y - 1 >= 0) ? // upright
-                                          gammaDivSqrt2 * exp(-beta * dot_diff(color, img_at(img, y - 1, x + 1)))
-                                                                        : 0;
+            int idx = y * img->cols + x;
+            if (x > 0)
+                leftW[idx] = gamma * exp(-beta * dot_diff_rgb(get_r(img, y, x), get_g(img, y, x), get_b(img, y, x), get_r(img, y, x - 1), get_g(img, y, x - 1), get_b(img, y, x - 1)));
+            else
+                leftW[idx] = 0;
+            if (x > 0 && y > 0)
+                upleftW[idx] = gammaDivSqrt2 * exp(-beta * dot_diff_rgb(get_r(img, y, x), get_g(img, y, x), get_b(img, y, x), get_r(img, y - 1, x - 1), get_g(img, y - 1, x - 1), get_b(img, y - 1, x - 1)));
+            else
+                upleftW[idx] = 0;
+            if (y > 0)
+                upW[idx] = gamma * exp(-beta * dot_diff_rgb(get_r(img, y, x), get_g(img, y, x), get_b(img, y, x), get_r(img, y - 1, x), get_g(img, y - 1, x), get_b(img, y - 1, x)));
+            else
+                upW[idx] = 0;
+            if (x < img->cols - 1 && y > 0)
+                uprightW[idx] = gammaDivSqrt2 * exp(-beta * dot_diff_rgb(get_r(img, y, x), get_g(img, y, x), get_b(img, y, x), get_r(img, y - 1, x + 1), get_g(img, y - 1, x + 1), get_b(img, y - 1, x + 1)));
+            else
+                uprightW[idx] = 0;
         }
     }
 }
@@ -257,30 +293,38 @@ static void calcNWeights(image_t *img, weight_t leftW, weight_t upleftW, weight_
 
 static void initMaskWithRect(mask_t *mask, rect_t rect, image_t *img)
 {
-    mask = (mask_t *)malloc(sizeof(mask_t));
-
     mask->rows = img->rows;
     mask->cols = img->cols;
     mask->array = (MaskVal *)calloc(img->rows * img->cols, sizeof(MaskVal));
 
     int start_x = rect.x;
-    int remaining_width = img->cols - rect.x;
-    int width = (rect.width > remaining_width) ? rect.width : remaining_width;
     int start_y = rect.y;
-    int remaining_height = img->rows - rect.y;
+
+    int remaining_width = img->cols - start_x;
+    int width = (rect.width < remaining_width) ? rect.width : remaining_width;
+
+    int remaining_height = img->rows - start_y;
     int end_y = rect.height < remaining_height ? rect.height : remaining_height;
     end_y += start_y;
-
+    int margin = 15;
     for (int r = start_y; r < end_y; r++)
     {
-        int row_index = r * img->cols;
-        memset(&(mask->array[row_index + start_x]), GC_PR_FGD, width);
+        for (int c = start_x; c < start_x + width; c++)
+        {
+            // if (r > start_y + margin && r < end_y - margin && c > start_x + margin && c < start_x + width - margin)
+            //     mask->array[r * img->cols + c] = GC_FGD;
+            // else
+            //     mask->array[r * img->cols + c] = GC_PR_FGD;
+
+            mask->array[r * img->cols + c] = GC_PR_FGD;
+        }
     }
 }
 
+/*
 void kmeans(pixel_t *pixels, int num_pixels, int k, int num_clusters, int max_iters, int *labels)
 {
-    labels = (int *)malloc(num_pixels * sizeof(int));
+    // labels = (int *)malloc(num_pixels * sizeof(int));
     // Allocate centroids
     Centroid *centroids = (Centroid *)malloc(num_clusters * sizeof(Centroid));
     Centroid *new_centroids = (Centroid *)malloc(num_clusters * sizeof(Centroid));
@@ -311,7 +355,7 @@ void kmeans(pixel_t *pixels, int num_pixels, int k, int num_clusters, int max_it
         {
             float min_dist = INFINITY;
             int label = 0;
-            for (int j = 0; j < k; ++j)
+            for (int j = 0; j < num_clusters; ++j)
             {
                 float dist = distance_squared(pixels[i], centroids[j]);
                 if (dist < min_dist)
@@ -340,8 +384,14 @@ void kmeans(pixel_t *pixels, int num_pixels, int k, int num_clusters, int max_it
                 new_centroids[i].b / counts[i]};
 
             // Check if centroid has changed significantly
-            pixel_t estimate_center = {(uint8_t)centroids[i].r, (uint8_t)centroids[i].g, (uint8_t)centroids[i].b};
-            float shift = distance_squared(estimate_center, updated);
+            // pixel_t estimate_center = {(uint8_t)centroids[i].r, (uint8_t)centroids[i].g, (uint8_t)centroids[i].b};
+            // float shift = distance_squared(estimate_center, updated);
+
+            float shift =
+                (centroids[i].r - updated.r) * (centroids[i].r - updated.r) +
+                (centroids[i].g - updated.g) * (centroids[i].g - updated.g) +
+                (centroids[i].b - updated.b) * (centroids[i].b - updated.b);
+
             if (shift > 1e-4f)
             {
                 converged = 0;
@@ -358,53 +408,264 @@ void kmeans(pixel_t *pixels, int num_pixels, int k, int num_clusters, int max_it
     free(new_centroids);
     free(counts);
 }
+*/
+
+__global__ void kmeans_gpu(
+    uint8_t *r, uint8_t *g, uint8_t *b, int num_pixels,
+    Centroid *centroids, Centroid *new_centroids, int *counts,
+    int *labels, int num_clusters, int max_iters)
+{
+    int block_id = blockIdx.x;
+
+    int num_bytes = 256;                     // use for getting parts of global image
+    __shared__ Centroid shared_centroids[5]; // = centroids;
+    __shared__ float local_sum_r[5];
+    __shared__ float local_sum_g[5];
+    __shared__ float local_sum_b[5];
+    __shared__ int local_count[5];
+    __shared__ uint8_t red[256];  //= r[block_id * num_bytes];
+    __shared__ uint8_t green[256]; //= g[block_id * num_bytes];
+    __shared__ uint8_t blue[256]; //= b[block_id * num_bytes];
+    
+    for (int i = 0; i < num_bytes; i++)
+    {
+      red[i] = r[(num_bytes * block_id) + i];
+      green[i] = g[(num_bytes * block_id) + i];
+      blue[i] = b[(num_bytes * block_id) + i];;
+    }
+   
+    int id = blockIdx.x * blockDim.x + threadIdx.x; // and/or y
+    int tid = threadIdx.x;                          // thread id within block
+
+    if (id == 0)
+        printf("in gpu %d\n", num_pixels);
+    if (id >= num_pixels)
+        return;
+
+    for (int iter = 0; iter < max_iters; ++iter)
+    {
+        if (tid == 0)
+        {
+            for (int i = 0; i < num_clusters; i++)
+            {
+                shared_centroids[tid] = centroids[tid];
+                local_sum_r[tid] = 0.0f;
+                local_sum_g[tid] = 0.0f;
+                local_sum_b[tid] = 0.0f;
+                local_count[tid] = 0;
+            }
+        }
+        __syncthreads();
+
+        float ri = red[id];
+        float gi = green[id];
+        float bi = blue[id];
+
+        float min_dist = INFINITY;
+        int label = 0;
+
+        for (int j = 0; j < num_clusters; ++j)
+        {
+            float dist = (ri - shared_centroids[j].r) * (ri - shared_centroids[j].r) + (gi - shared_centroids[j].g) * (gi - shared_centroids[j].g) + (bi - shared_centroids[j].b) * (bi - shared_centroids[j].b);
+            if (dist < min_dist)
+            {
+                min_dist = dist;
+                label = j;
+            }
+        }
+        labels[id] = label;
+
+        atomicAdd(&local_sum_r[label], ri);
+        atomicAdd(&local_sum_g[label], gi);
+        atomicAdd(&local_sum_b[label], bi);
+        atomicAdd(&local_count[label], 1);
+        __syncthreads(); // unncessary?
+
+        if (tid == 0)
+        {
+            for (int i = 0; i < num_clusters; i++)
+            {
+                if (local_count[tid] == 0)
+                    continue; // avoid division by zero
+                centroids[i].r = local_sum_r[tid] / local_count[tid];
+                centroids[i].g = local_sum_g[tid] / local_count[tid];
+                centroids[i].b = local_sum_b[tid] / local_count[tid];
+            }
+        }
+
+        __syncthreads();
+    }
+}
 
 /*
   Initialize GMM background and foreground models using kmeans algorithm.
 */
 static void initGMMs(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_t *fgdGMM)
 {
+
+    // More realistically, we should only definitely put the kmean's num_pixels for loop in the kernel, not entire kmeans algorithm
     int kMeansItCount = 10;
     int k = 5;
+    std::vector<uint8_t> bgdR, bgdG, bgdB;
+    std::vector<uint8_t> fgdR, fgdG, fgdB;
 
-    int *bgdLabels = NULL, *fgdLabels = NULL;
-    std::vector<pixel_t> bgdSamples, fgdSamples;
     for (int r = 0; r < img->rows; r++)
     {
         for (int c = 0; c < img->cols; c++)
         {
             MaskVal m = mask_at(mask, r, c);
             if (m == GC_BGD || m == GC_PR_BGD)
-                bgdSamples.push_back(*img_at(img, r, c));
-            else // GC_FGD | GC_PR_FGD
-                fgdSamples.push_back(*img_at(img, r, c));
+            {
+                bgdR.push_back(get_r(img, r, c));
+                bgdG.push_back(get_g(img, r, c));
+                bgdB.push_back(get_b(img, r, c));
+            }
+
+            // GC_FGD | GC_PR_FGD
+            else
+            {
+                fgdR.push_back(get_r(img, r, c));
+                fgdG.push_back(get_g(img, r, c));
+                fgdB.push_back(get_b(img, r, c));
+            }
         }
     }
 
-    // replace with kmeans kernel - maybe use streams?
+    int bdg_size = bgdR.size();
+    int fgd_size = fgdR.size();
+
+    int *bgdLabels = (int *)malloc(bdg_size * sizeof(int));
+    int *fgdLabels = (int *)malloc(fgd_size * sizeof(int));
+    int threadsPerBlock = 64;
     {
-        int num_clusters = COMPONENT_COUNT;
-        num_clusters = std::min(num_clusters, (int)bgdSamples.size());
-        kmeans((pixel_t *)&bgdSamples[0], (int)bgdSamples.size(), k, num_clusters, kMeansItCount,
-               bgdLabels);
+        int num_clusters = std::min(COMPONENT_COUNT, bdg_size);
+
+        uint8_t *d_bgdR, *d_bgdG, *d_bgdB;
+        cudaMalloc((void **)&d_bgdR, bdg_size * sizeof(uint8_t));
+        cudaMalloc((void **)&d_bgdG, bdg_size * sizeof(uint8_t));
+        cudaMalloc((void **)&d_bgdB, bdg_size * sizeof(uint8_t));
+
+        cudaMemcpy(d_bgdR, bgdR.data(), bdg_size * sizeof(uint8_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(d_bgdG, bgdG.data(), bdg_size * sizeof(uint8_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(d_bgdB, bgdB.data(), bdg_size * sizeof(uint8_t), cudaMemcpyHostToDevice);
+
+        Centroid *centroids = (Centroid *)malloc(num_clusters * sizeof(Centroid)); // in kmeans
+        Centroid *new_centroids;
+        int *counts;
+        int *dev_bgdLabels;
+        Centroid *dev_centroids;
+
+        cudaMalloc((void **)&dev_centroids, num_clusters * sizeof(Centroid));
+        cudaMalloc((void **)&new_centroids, num_clusters * sizeof(Centroid));
+        cudaMalloc((void **)&counts, num_clusters * sizeof(int));
+        cudaMalloc((void **)&dev_bgdLabels, bdg_size * sizeof(int));
+
+        srand(1);
+        for (int i = 0; i < num_clusters; i++)
+        {
+            int idx = rand() % (bdg_size);
+            centroids[i].r = img->r[idx];
+            centroids[i].g = img->g[idx];
+            centroids[i].b = img->b[idx];
+        }
+        cudaMemcpy(dev_centroids, centroids, num_clusters * sizeof(Centroid), cudaMemcpyHostToDevice);
+
+        cout << "before bgd num pixels: " << bdg_size << endl;
+        int numBlocks = (bdg_size + threadsPerBlock - 1) / (threadsPerBlock);
+        auto start = std::chrono::high_resolution_clock::now();
+        kmeans_gpu<<<numBlocks, threadsPerBlock>>>(d_bgdR, d_bgdG, d_bgdB, bdg_size,
+                                                   dev_centroids, new_centroids, counts, dev_bgdLabels, num_clusters, kMeansItCount);
+        cudaDeviceSynchronize();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+        cout << "K-means for background took: " << duration.count() << " us\n";
+
+        cudaMemcpy(bgdLabels, dev_bgdLabels, bdg_size * sizeof(int), cudaMemcpyDeviceToHost);
+        cudaFree(d_bgdR);
+        cudaFree(d_bgdG);
+        cudaFree(d_bgdB);
+        cudaFree(dev_centroids);
+        cudaFree(new_centroids);
+        cudaFree(counts);
+        cudaFree(dev_bgdLabels);
+        free(centroids);
     }
 
     {
-        int num_clusters = COMPONENT_COUNT;
-        num_clusters = std::min(num_clusters, (int)fgdSamples.size());
-        kmeans((pixel_t *)&fgdSamples[0], (int)fgdSamples.size(), k, num_clusters, kMeansItCount,
-               fgdLabels);
+        int num_clusters = std::min(COMPONENT_COUNT, fgd_size);
+
+        uint8_t *d_fgdR, *d_fgdG, *d_fgdB;
+        cudaMalloc((void **)&d_fgdR, fgd_size * sizeof(uint8_t));
+        cudaMalloc((void **)&d_fgdG, fgd_size * sizeof(uint8_t));
+        cudaMalloc((void **)&d_fgdB, fgd_size * sizeof(uint8_t));
+
+        cudaMemcpy(d_fgdR, fgdR.data(), fgd_size * sizeof(uint8_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(d_fgdG, fgdG.data(), fgd_size * sizeof(uint8_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(d_fgdB, fgdB.data(), fgd_size * sizeof(uint8_t), cudaMemcpyHostToDevice);
+
+        Centroid *f_centroids = (Centroid *)malloc(num_clusters * sizeof(Centroid)); // in kmeans
+        Centroid *new_centroids;
+        int *counts;
+        int *dev_fgdLabels;
+        Centroid *dev_centroids;
+
+        cudaMalloc((void **)&dev_centroids, num_clusters * sizeof(Centroid));
+        cudaMalloc((void **)&new_centroids, num_clusters * sizeof(Centroid));
+        cudaMalloc((void **)&counts, num_clusters * sizeof(int));
+        cudaMalloc((void **)&dev_fgdLabels, fgd_size * sizeof(int));
+
+        srand(1);
+        for (int i = 0; i < num_clusters; i++)
+        {
+            int idx = rand() % (fgd_size);
+            f_centroids[i].g = img->g[idx];
+            f_centroids[i].r = img->r[idx];
+            f_centroids[i].b = img->b[idx];
+        }
+        cudaMemcpy(dev_centroids, f_centroids, num_clusters * sizeof(Centroid), cudaMemcpyHostToDevice);
+
+        
+        int numBlocks = (fgd_size + threadsPerBlock - 1) / (threadsPerBlock);
+        std::cout << "before fgd num pixels " << fgd_size << endl;
+        
+        auto start = std::chrono::high_resolution_clock::now();
+        kmeans_gpu<<<numBlocks, threadsPerBlock>>>(d_fgdR, d_fgdG, d_fgdB, fgd_size,
+                                                   dev_centroids, new_centroids, counts, dev_fgdLabels, num_clusters, kMeansItCount);
+        cudaDeviceSynchronize();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+        cout << "K-means for foreground took: " << duration.count() << " us\n";
+
+        cudaMemcpy(fgdLabels, dev_fgdLabels, fgd_size * sizeof(int), cudaMemcpyDeviceToHost);
+        cudaFree(d_fgdR);
+        cudaFree(d_fgdG);
+        cudaFree(d_fgdB);
+        cudaFree(dev_centroids);
+        cudaFree(new_centroids);
+        cudaFree(counts);
+        cudaFree(dev_fgdLabels);
+        free(f_centroids);
     }
 
-    // can use streams? one for fg and one for bg
+    cout << "done with kmeans\n";
     initLearning(bgdGMM);
-    for (int i = 0; i < (int)bgdSamples.size(); i++)
-        addSample(bgdGMM, bgdLabels[i], bgdSamples[i]);
+    for (int i = 0; i < bdg_size; i++)
+    {
+        pixel_t px = {bgdR[i], bgdG[i], bgdB[i]};
+        addSample(bgdGMM, bgdLabels[i], px);
+    }
+    // std::cout << "BGD GMM means weights after initGMMs" << std::endl;
     endLearning(bgdGMM);
 
     initLearning(fgdGMM);
-    for (int i = 0; i < (int)fgdSamples.size(); i++)
-        addSample(fgdGMM, fgdLabels[i], fgdSamples[i]);
+    for (int i = 0; i < fgd_size; i++)
+    {
+        pixel_t px = {fgdR[i], fgdG[i], fgdB[i]};
+        addSample(fgdGMM, fgdLabels[i], px);
+    }
+    // std::cout << "FGD GMM means weights after initGMMs" << std::endl;
     endLearning(fgdGMM);
 }
 
@@ -415,7 +676,7 @@ static void assignGMMsComponents(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_
         int row_index = r * img->cols;
         for (int c = 0; c < img->cols; c++)
         {
-            pixel_t color = *img_at(img, r, c);
+            pixel_t color = {get_r(img, r, c), get_g(img, r, c), get_b(img, r, c)};
             MaskVal m = mask_at(mask, r, c);
             compIdxs[row_index + c] = (m == GC_BGD || m == GC_PR_BGD) ? whichComponent(bgdGMM, color) : whichComponent(fgdGMM, color);
         }
@@ -425,7 +686,7 @@ static void assignGMMsComponents(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_
 /*
   Learn GMMs parameters.
 */
-static void learnGMMs(image_t *img, mask_t *mask, int *compIdxs, GMM_t *bgdGMM, GMM_t *fgdGMM)
+static void learnGMMs(image_t *img, mask_t *mask, int *compIdxs, GMM_t *bgdGMM, GMM_t *fgdGMM, int iter)
 {
     initLearning(bgdGMM);
     initLearning(fgdGMM);
@@ -439,15 +700,39 @@ static void learnGMMs(image_t *img, mask_t *mask, int *compIdxs, GMM_t *bgdGMM, 
                 if (compIdxs[row_index + c] == ci)
                 {
                     MaskVal m = mask_at(mask, r, c);
-                    if (m == GC_BGD || m == GC_PR_BGD)
-                        addSample(bgdGMM, ci, *img_at(img, r, c));
+                    if (iter == 0)
+                    {
+                        if (m == GC_BGD || m == GC_PR_BGD)
+                        {
+                            pixel_t color = {get_r(img, r, c), get_g(img, r, c), get_b(img, r, c)};
+                            addSample(bgdGMM, ci, color);
+                        }
+                        else if (m == GC_FGD || m == GC_PR_FGD)
+                        {
+                            pixel_t color = {get_r(img, r, c), get_g(img, r, c), get_b(img, r, c)};
+                            addSample(fgdGMM, ci, color);
+                        }
+                    }
                     else
-                        addSample(fgdGMM, ci, *img_at(img, r, c));
+                    {
+                        if (m == GC_BGD || m == GC_PR_BGD)
+                        {
+                            pixel_t color = {get_r(img, r, c), get_g(img, r, c), get_b(img, r, c)};
+                            addSample(bgdGMM, ci, color);
+                        }
+                        else
+                        {
+                            pixel_t color = {get_r(img, r, c), get_g(img, r, c), get_b(img, r, c)};
+                            addSample(fgdGMM, ci, color);
+                        }
+                    }
                 }
             }
         }
     }
+    // std::cout << "BGD GMM means weights after learning:" << std::endl;
     endLearning(bgdGMM);
+    // std::cout << "FGD GMM means weights after learning:" << std::endl;
     endLearning(fgdGMM);
 }
 
@@ -455,9 +740,17 @@ static void constructGCGraph(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_t *f
                              weight_t leftW, weight_t upleftW, weight_t upW, weight_t uprightW,
                              GCGraph<double> &graph)
 {
+    if (img == NULL || mask == NULL || bgdGMM == NULL || fgdGMM == NULL)
+        return;
+
     int vtxCount = img->cols * img->rows,
         edgeCount = 2 * (4 * img->cols * img->rows - 3 * (img->cols + img->rows) + 2);
+
+    // cout << "vertex count: " << vtxCount << "\n";
     graph.create(vtxCount, edgeCount);
+    // std::cout << "Graph created with " << vtxCount << " vertices and " << edgeCount << " edges." << std::endl;
+
+    // cout << "created graph in construct function\n";
     for (int r = 0; r < img->rows; r++)
     {
         int row_index = r * img->cols;
@@ -465,15 +758,15 @@ static void constructGCGraph(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_t *f
         {
             // add node
             int vtxIdx = graph.addVtx();
-            pixel_t color = *img_at(img, r, c);
+            pixel_t color = {get_r(img, r, c), get_g(img, r, c), get_b(img, r, c)};
 
             // set t-weights
             double fromSource, toSink;
             MaskVal m = mask_at(mask, r, c);
             if (m == GC_PR_BGD || m == GC_PR_FGD)
             {
-                fromSource = -log(doSomething(bgdGMM, color));
-                toSink = -log(doSomething(fgdGMM, color));
+                fromSource = -log(doSomething(bgdGMM, color) + 1e-6);
+                toSink = -log(doSomething(fgdGMM, color) + 1e-6);
             }
             else if (m == GC_BGD)
             {
@@ -514,7 +807,8 @@ static void constructGCGraph(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_t *f
 
 static void estimateSegmentation(GCGraph<double> &graph, mask_t *mask)
 {
-    graph.maxFlow();
+    int flow = graph.maxFlow();
+    // cout << "Max flow: " << flow << "\n";
     for (int r = 0; r < mask->rows; r++)
     {
         for (int c = 0; c < mask->cols; c++)
@@ -523,25 +817,77 @@ static void estimateSegmentation(GCGraph<double> &graph, mask_t *mask)
             if (m == GC_PR_BGD || m == GC_PR_FGD)
             {
                 if (graph.inSourceSegment(r * mask->cols + c /*vertex index*/))
+                {
+                    // cout << "mask[" << r << "][" << c << "] = " << m;
                     mask_set(mask, r, c, GC_PR_FGD);
+                    // cout << " mask[" << r << "][" << c << "] = GC_PR_FGD\n";
+                }
                 else
+                {
+                    // cout << "mask[" << r << "][" << c << "] = " << m;
                     mask_set(mask, r, c, GC_PR_BGD);
+                    // cout << " mask[" << r << "][" << c << "] = GC_PR_BGD\n";
+                }
             }
         }
     }
 }
 
-void grabCut(image_t *img, rect_t rect, int iterCount)
+void displayImage(image_t *img)
 {
+    cv::Mat displayImg(img->rows, img->cols, CV_8UC3);
+    for (int r = 0; r < img->rows; r++)
+    {
+        for (int c = 0; c < img->cols; c++)
+        {
+            displayImg.at<cv::Vec3b>(r, c) = cv::Vec3b(get_b(img, r, c), get_g(img, r, c), get_r(img, r, c));
+        }
+    }
+    cv::imshow("Image", displayImg);
+    cv::waitKey(0);
+}
+
+void gettingOutput(image_t *img, mask_t *mask, image_t *foreground, image_t *background)
+{
+    for (int r = 0; r < img->rows; r++)
+    {
+        for (int c = 0; c < img->cols; c++)
+        {
+            uint8_t R = get_r(img, r, c);
+            uint8_t G = get_g(img, r, c);
+            uint8_t B = get_b(img, r, c);
+            if (mask_at(mask, r, c) == GC_FGD || mask_at(mask, r, c) == GC_PR_FGD)
+                set_rgb(foreground, r, c, R, G, B), set_rgb(background, r, c, 0, 0, 0);
+            else
+                set_rgb(background, r, c, R, G, B), set_rgb(foreground, r, c, 0, 0, 0);
+        }
+    }
+    // std::cout << "Segmentation result: " << fg << " foreground, " << bg << " background pixels." << std::endl;
+}
+
+void grabCut(image_t *img, rect_t rect, image_t *foreground, image_t *background, int iterCount)
+{
+    int num_pixels = img->rows * img->cols;
+    // std::cout << "grabCut called\n";
+
     GMM_t *bgdGMM, *fgdGMM;
-    mask_t *mask;
+    bgdGMM = (GMM_t *)malloc(sizeof(GMM_t));
+    fgdGMM = (GMM_t *)malloc(sizeof(GMM_t));
+    mask_t *mask = (mask_t *)malloc(sizeof(mask_t));
 
     initEmptyGMM(bgdGMM);
     initEmptyGMM(fgdGMM);
-    int *compIdxs = (int *)malloc(img->rows * img->cols * sizeof(int));
+
+    // std::cout << "init GMMs\n";
+    int *compIdxs = (int *)malloc(num_pixels * sizeof(int));
 
     initMaskWithRect(mask, rect, img);
+    // gettingOutput(img, mask, foreground, background);
+    // displayImage(foreground);
+    // displayImage(background);
+    //  cout << "After init mask with rect\n";
     initGMMs(img, mask, bgdGMM, fgdGMM);
+    // cout << "init gmms again\n";
 
     if (iterCount <= 0)
         return;
@@ -549,41 +895,123 @@ void grabCut(image_t *img, rect_t rect, int iterCount)
     const double gamma = 50;
     const double lambda = 9 * gamma;
 
-    // how to copy image over to the gpu
     const double beta = calcBeta(img);
 
     double *leftW, *upleftW, *upW, *uprightW;
+    leftW = (double *)calloc(num_pixels, sizeof(double));
+    upleftW = (double *)calloc(num_pixels, sizeof(double));
+    upW = (double *)calloc(num_pixels, sizeof(double));
+    uprightW = (double *)calloc(num_pixels, sizeof(double));
     calcNWeights(img, leftW, upleftW, upW, uprightW, beta, gamma);
 
-    for (int i = 0; i < iterCount; i++)
-    {
-        GCGraph<double> graph;
-        assignGMMsComponents(img, mask, bgdGMM, fgdGMM, compIdxs);
-        learnGMMs(img, mask, compIdxs, bgdGMM, fgdGMM);
-        constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph);
-        estimateSegmentation(graph, mask);
-    }
+    /*
+    std::cout << "Left edge weights sample:" << std::endl;
+    for (int y = 0; y < 5; ++y) {
+        for (int x = 0; x < 5; ++x) {
+            std::cout << leftW[x + (img->cols)*y] << " ";
+        }
+        std::cout << std::endl;
+    } */
+
+    // cout << "After calc nweights\n";
+    // std::cout << "Gamma: " << gamma << std::endl;
+
+    // for (int i = 0; i < iterCount; i++) //i< iterCount
+    // {
+    //     GCGraph<double> graph;
+    //     assignGMMsComponents(img, mask, bgdGMM, fgdGMM, compIdxs);
+    //     learnGMMs(img, mask, compIdxs, bgdGMM, fgdGMM, i);
+    //     constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph);
+    //     estimateSegmentation(graph, mask);
+    // }
+    // gettingOutput(img, mask, foreground, background);
+
+    // displayImage(foreground);
+    // displayImage(background);
+    // cout << "after lop\n";
 }
 
-__global__ void emptyKernel(){}
-
-int main()
+int main(int argc, char **argv)
 {
+    if (argc < 2)
+    {
+        std::cerr << "Usage: ./SlowGrabCut <image_path> [x1 y1 x2 y2]" << std::endl;
+        return -1;
+    }
 
-    emptyKernel<<<1,1>>>();
-    cudaDeviceSynchronize();
-
-    std::cout << "Kernel launched and finished (did nothing)." << std::endl;
-
-    cv::Mat image = cv::imread("../dataset/small/24077.jpg");
+    string file_path = argv[1];
+    cv::Mat image = cv::imread(file_path);
 
     if (image.empty())
     {
         std::cerr << "Image not loaded!" << std::endl;
         return -1;
     }
+    std::cout << "Loaded Image " << file_path << std::endl;
 
-    cv::imshow("Loaded Image", image);
-    cv::waitKey(0);
+    image_t *img = (image_t *)malloc(sizeof(image_t));
+    img->rows = image.rows;
+    img->cols = image.cols;
+    img->r = (uint8_t *)malloc(img->rows * img->cols * sizeof(uint8_t));
+    img->g = (uint8_t *)malloc(img->rows * img->cols * sizeof(uint8_t));
+    img->b = (uint8_t *)malloc(img->rows * img->cols * sizeof(uint8_t));
+
+    image_t *foreground = (image_t *)malloc(sizeof(image_t));
+    image_t *background = (image_t *)malloc(sizeof(image_t));
+
+    foreground->rows = background->rows = image.rows;
+    foreground->cols = background->cols = image.cols;
+
+    foreground->r = (uint8_t *)calloc(img->rows * img->cols, sizeof(uint8_t));
+    foreground->g = (uint8_t *)calloc(img->rows * img->cols, sizeof(uint8_t));
+    foreground->b = (uint8_t *)calloc(img->rows * img->cols, sizeof(uint8_t));
+    background->r = (uint8_t *)calloc(img->rows * img->cols, sizeof(uint8_t));
+    background->g = (uint8_t *)calloc(img->rows * img->cols, sizeof(uint8_t));
+    background->b = (uint8_t *)calloc(img->rows * img->cols, sizeof(uint8_t));
+
+    for (int r = 0; r < img->rows; r++)
+    {
+        for (int c = 0; c < img->cols; c++)
+        {
+            cv::Vec3b color = image.at<cv::Vec3b>(r, c);
+            set_rgb(img, r, c, color[2], color[1], color[0]);
+
+            /*
+            img->array[r * img->cols + c].r = color[2];
+            img->array[r * img->cols + c].g = color[1];
+            img->array[r * img->cols + c].b = color[0];
+            */
+        }
+    }
+    uint64_t x1 = 0, y1 = 0, x2 = img->cols - 1, y2 = img->rows - 1;
+
+    if (argc == 6)
+    {
+        x1 = std::stoi(argv[2]);
+        y1 = std::stoi(argv[3]);
+        x2 = std::stoi(argv[4]);
+        y2 = std::stoi(argv[5]);
+    }
+    else
+    {
+        std::cerr << "Warning: No bounding box provided, using full image" << std::endl;
+    }
+
+    grabCut(img, {x1, y1, x2, y2}, foreground, background, 5);
+
+    // grabCut(img, {132, 75, 845, 525}, foreground, background, 5);
+    // 132 75 845 525
+    free(img->r);
+    free(img->g);
+    free(img->b);
+    free(img);
+    free(foreground->r);
+    free(foreground->g);
+    free(foreground->b);
+    free(foreground);
+    free(background->r);
+    free(background->g);
+    free(background->b);
+    free(background);
     return 0;
 }
