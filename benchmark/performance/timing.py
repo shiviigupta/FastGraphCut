@@ -1,21 +1,37 @@
 import os
 import subprocess
-directory_path = "../dataset/small/"
-file_list = os.listdir(directory_path)
+
+bb_path = "../dataset/large_bb.txt"
+directory_path = "../dataset/large/"
+
+bbox_dict = {}
+with open(bb_path, "r") as f:
+    for line in f:
+        parts = line.strip().split()
+        filename = parts[0]
+        bbox = list(map(int, parts[1:]))
+        bbox_dict[filename] = bbox
 
 km_fgd = 0
 km_bgd = 0
 calcbeta = 0
 calcweights = 0
 
-output_file = open("timing_small.txt", "w")
+output_file = open("../dataset/timing_large.txt", "w")
+
+file_list = os.listdir(directory_path)
 
 for file in file_list:
     if file.endswith(".jpg"):
         file_path = os.path.join(directory_path, file)
-        print(f"\n\nProcessing {file_path}...")
+        bbox = bbox_dict[file]
 
-        result = subprocess.run(["./SlowGrabCut", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        print(f"\n\nProcessing {file_path} with bbox {bbox}...")
+
+        #result = subprocess.run(["./SlowGrabCut", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        result = subprocess.run(["./SlowGrabCut", file_path, str(bbox[0]), str(bbox[1]), str(bbox[2]), str(bbox[3])], 
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                 
         time = result.stdout.decode('utf-8')
         print(time)
 

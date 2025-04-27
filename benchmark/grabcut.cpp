@@ -759,11 +759,17 @@ void grabCut(image_t *img, rect_t rect, image_t *foreground, image_t *background
 
 int main(int argc, char **argv)
 {
-    string file_path = "../dataset/large/flower.jpg";
-    if (argc == 2) {
-        file_path = argv[1];
+    if (argc < 2) {
+        std::cerr << "Usage: ./SlowGrabCut <image_path> [x1 y1 x2 y2]" << std::endl;
+        return -1;
     }
 
+    //string file_path = "../dataset/large/flower.jpg";
+    //if (argc == 2) {
+    //    file_path = argv[1];
+    //}
+
+    string file_path = argv[1];
     cv::Mat image = cv::imread(file_path);
 
     if (image.empty())
@@ -810,7 +816,18 @@ int main(int argc, char **argv)
 
     // grabCut(img, {78, 188, 240, 390}, foreground, background, 5); // 78 188 240 390 large 304074
 
-    grabCut(img, {103, 59, 477, 401}, foreground, background, 5); 
+    int x1 = 0, y1 = 0, x2 = img->cols - 1, y2 = img->rows - 1;
+
+    if (argc == 6) {
+        x1 = std::stoi(argv[2]);
+        y1 = std::stoi(argv[3]);
+        x2 = std::stoi(argv[4]);
+        y2 = std::stoi(argv[5]);
+    } else {
+        std::cerr << "Warning: No bounding box provided, using full image" << std::endl;
+    }
+
+    grabCut(img, {x1, y1, x2, y2}, foreground, background, 5);
     //103 59 477 401 large flower
     // cv::imshow("Loaded Image", img.array);
     // cv::waitKey(0);
