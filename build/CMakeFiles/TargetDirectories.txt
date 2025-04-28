@@ -1,4 +1,0 @@
-/afs/andrew.cmu.edu/usr22/meghnaj/private/18646/FastGraphCut/build/CMakeFiles/SlowGrabCut.dir
-/afs/andrew.cmu.edu/usr22/meghnaj/private/18646/FastGraphCut/build/CMakeFiles/FastGrabCut.dir
-/afs/andrew.cmu.edu/usr22/meghnaj/private/18646/FastGraphCut/build/CMakeFiles/edit_cache.dir
-/afs/andrew.cmu.edu/usr22/meghnaj/private/18646/FastGraphCut/build/CMakeFiles/rebuild_cache.dir
