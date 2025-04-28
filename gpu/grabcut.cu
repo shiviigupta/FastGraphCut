@@ -8,7 +8,7 @@
 // #include "graph.hpp"
 #include <opencv2/opencv.hpp>
 #include <iostream>
-#include <omp.h>
+// #include <omp.h>
 #include <curand_kernel.h>
 
 #define COMPONENT_COUNT 5
@@ -386,8 +386,6 @@ __global__ void fastCalcWeights(double *w, double beta, double gamma, uint64_t s
 
 void fastCalcConsts(image_t *img, double *leftW, double *upleftW, double *upW, double *uprightW, double gamma)
 {
-    double st, et;
-
     double *gpuLeftW, *gpuUpLeftW, *gpuUpW, *gpuUpRightW;
     uint8_t *gpuPixels;
     float *gpuBeta, beta;
@@ -439,7 +437,7 @@ void fastCalcConsts(image_t *img, double *leftW, double *upleftW, double *upW, d
     uint64_t tile_width = min(img->cols, MAX_COLS);
     uint64_t shared_mem_size = 6 * tile_width;
 
-    st = omp_get_wtime();
+    auto start = std::chrono::high_resolution_clock::now();
     // CalcBeta (potentially slower but more work)
     fastCalcBeta<<<NUM_THREAD_BLOCKS,THREADS_PER_BLOCK, shared_mem_size, streams[0]>>>(
             gpuPixels, img->rows, img->cols, tile_width,
@@ -456,9 +454,11 @@ void fastCalcConsts(image_t *img, double *leftW, double *upleftW, double *upW, d
     else
         beta = 1.f / (2 * beta / (4 * img->cols * img->rows - 3 * img->cols - 3 * img->rows + 2));
 
-    cout << "beta: " << beta << endl;
-    et = omp_get_wtime();
-    cout<< "calcBeta: " <<(et-st)<< " seconds" <<endl;
+    // cout << "beta: " << beta << endl;
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+    cout << "calcBeta: " << duration.count() << " us\n";
 
     cudaMemcpyAsync(gpuLeftW, leftW, img->cols * sizeof(double), cudaMemcpyHostToDevice, streams[0]);
     cudaMemsetAsync(gpuUpLeftW, 0, img->cols * sizeof(float), streams[1]);
@@ -466,7 +466,7 @@ void fastCalcConsts(image_t *img, double *leftW, double *upleftW, double *upW, d
     cudaMemsetAsync(gpuUpRightW, 0, img->cols * sizeof(float), streams[3]);
 
     // CalcNWeights (definitely faster)
-    st = omp_get_wtime();
+    start = std::chrono::high_resolution_clock::now();
     double gammaDivSqrt2 = gamma / sqrt(2.0);
 
     fastCalcWeights<<<NUM_THREAD_BLOCKS/8,THREADS_PER_BLOCK,0,streams[0]>>>(gpuLeftW, beta, gamma, num_pixels);
@@ -475,9 +475,9 @@ void fastCalcConsts(image_t *img, double *leftW, double *upleftW, double *upW, d
     fastCalcWeights<<<NUM_THREAD_BLOCKS/8,THREADS_PER_BLOCK,0,streams[3]>>>(gpuUpRightW, beta, gammaDivSqrt2, num_pixels);
 
     cudaDeviceSynchronize();
-
-    et = omp_get_wtime();
-    cout<< "calcNWeights: " <<(et-st)<< " seconds" <<endl;
+    end = std::chrono::high_resolution_clock::now();
+    duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    cout << "calcNWeights: " << duration.count() << " us\n";
 
     cudaMemcpyAsync(leftW, gpuLeftW, num_pixels * sizeof(double), cudaMemcpyDeviceToHost, streams[0]);
     cudaMemcpyAsync(upleftW, gpuUpLeftW, num_pixels * sizeof(double), cudaMemcpyDeviceToHost, streams[1]);
@@ -532,9 +532,9 @@ __global__ void kmeans_gpu(
     Centroid *centroids, Centroid *new_centroids, int *counts,
     int *labels, int num_clusters, int max_iters)
 {
-    int block_id = blockIdx.x;
+    // int block_id = blockIdx.x;
 
-    int num_bytes = 256;                     // use for getting parts of global image
+    // int num_bytes = 256;                     // use for getting parts of global image
     __shared__ Centroid shared_centroids[5]; // = centroids;
     __shared__ float local_sum_r[5];
     __shared__ float local_sum_g[5];
