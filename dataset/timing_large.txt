@@ -1,0 +1,290 @@
+Loaded Image ../dataset/large/bison.jpg
+3648 5472
+before bgd num pixels: 11269560
+in gpu 11269560
+K-means for background took: 117886 us
+before fgd num pixels 8692296
+in gpu 8692296
+K-means for foreground took: 67819 us
+done with kmeans
+beta: 0.00575095
+calcBeta: 0.00491759 seconds
+calcNWeights: 0.0196103 seconds
+
+
+Loaded Image ../dataset/large/butterfly.jpg
+6000 4000
+before bgd num pixels: 14141532
+in gpu 14141532
+K-means for background took: 129440 us
+before fgd num pixels 9858468
+in gpu 9858468
+K-means for foreground took: 51217 us
+done with kmeans
+beta: 0.00661071
+calcBeta: 0.00586597 seconds
+calcNWeights: 0.0185931 seconds
+
+
+Loaded Image ../dataset/large/cake.jpg
+5760 3840
+before bgd num pixels: 12697560
+in gpu 12697560
+K-means for background took: 118091 us
+before fgd num pixels 9420840
+in gpu 9420840
+K-means for foreground took: 62186 us
+done with kmeans
+beta: 0.0109797
+calcBeta: 0.00539675 seconds
+calcNWeights: 0.0162119 seconds
+
+
+Loaded Image ../dataset/large/cake2.jpg
+7811 5207
+before bgd num pixels: 22112164
+in gpu 22112164
+K-means for background took: 187748 us
+before fgd num pixels 18559713
+in gpu 18559713
+K-means for foreground took: 85290 us
+done with kmeans
+beta: 0.00101203
+calcBeta: 0.0115941 seconds
+calcNWeights: 0.0417213 seconds
+
+
+Loaded Image ../dataset/large/coffee.jpg
+5980 3933
+before bgd num pixels: 15746904
+in gpu 15746904
+K-means for background took: 131942 us
+before fgd num pixels 7772436
+in gpu 7772436
+K-means for foreground took: 46231 us
+done with kmeans
+beta: 0.00120192
+calcBeta: 0.00677518 seconds
+calcNWeights: 0.0228413 seconds
+
+
+Loaded Image ../dataset/large/deer.jpg
+5578 3719
+before bgd num pixels: 8067632
+in gpu 8067632
+K-means for background took: 88675 us
+before fgd num pixels 12676950
+in gpu 12676950
+K-means for foreground took: 98511 us
+done with kmeans
+beta: 0.00471467
+calcBeta: 0.00610047 seconds
+calcNWeights: 0.0282182 seconds
+
+
+Loaded Image ../dataset/large/dog.jpg
+3456 5184
+before bgd num pixels: 7998659
+in gpu 7998659
+K-means for background took: 90374 us
+before fgd num pixels 9917245
+in gpu 9917245
+K-means for foreground took: 92508 us
+done with kmeans
+beta: 0.00254929
+calcBeta: 0.00449395 seconds
+calcNWeights: 0.0174634 seconds
+
+
+Loaded Image ../dataset/large/dog2.jpg
+5955 3970
+before bgd num pixels: 13175466
+in gpu 13175466
+K-means for background took: 115511 us
+before fgd num pixels 10465884
+in gpu 10465884
+K-means for foreground took: 78170 us
+done with kmeans
+beta: 0.00249797
+calcBeta: 0.00660996 seconds
+calcNWeights: 0.0247719 seconds
+
+
+Loaded Image ../dataset/large/duck.jpg
+4000 6000
+before bgd num pixels: 17400435
+in gpu 17400435
+K-means for background took: 150473 us
+before fgd num pixels 6599565
+in gpu 6599565
+K-means for foreground took: 53086 us
+done with kmeans
+beta: 0.073304
+calcBeta: 0.00589487 seconds
+calcNWeights: 0.0176279 seconds
+
+
+Loaded Image ../dataset/large/elephant.jpg
+4000 6000
+before bgd num pixels: 6795560
+in gpu 6795560
+K-means for background took: 76044 us
+before fgd num pixels 17204440
+in gpu 17204440
+K-means for foreground took: 162284 us
+done with kmeans
+beta: 0.00212543
+calcBeta: 0.00587158 seconds
+calcNWeights: 0.0176791 seconds
+
+
+Loaded Image ../dataset/large/flower.jpg
+2624 3936
+before bgd num pixels: 3220381
+in gpu 3220381
+K-means for background took: 39844 us
+before fgd num pixels 7107683
+in gpu 7107683
+K-means for foreground took: 53790 us
+done with kmeans
+beta: 0.0187259
+calcBeta: 0.00273319 seconds
+calcNWeights: 0.0122718 seconds
+
+
+Loaded Image ../dataset/large/flower2.jpg
+6016 4016
+before bgd num pixels: 10215588
+in gpu 10215588
+K-means for background took: 94643 us
+before fgd num pixels 13944668
+in gpu 13944668
+K-means for foreground took: 108309 us
+done with kmeans
+beta: 0.00443339
+calcBeta: 0.00595993 seconds
+calcNWeights: 0.0180902 seconds
+
+
+Loaded Image ../dataset/large/goat.jpg
+4000 3201
+before bgd num pixels: 5889190
+in gpu 5889190
+K-means for background took: 66453 us
+before fgd num pixels 6914810
+in gpu 6914810
+K-means for foreground took: 64024 us
+done with kmeans
+beta: 0.00405795
+calcBeta: 0.00411918 seconds
+calcNWeights: 0.0185107 seconds
+
+
+Loaded Image ../dataset/large/hut.jpg
+4032 3024
+before bgd num pixels: 6214609
+in gpu 6214609
+K-means for background took: 71294 us
+before fgd num pixels 5978159
+in gpu 5978159
+K-means for foreground took: 53916 us
+done with kmeans
+beta: 0.0026033
+calcBeta: 0.00318799 seconds
+calcNWeights: 0.0163482 seconds
+
+
+Loaded Image ../dataset/large/motorbike.jpg
+4000 6000
+before bgd num pixels: 15830202
+in gpu 15830202
+K-means for background took: 153688 us
+before fgd num pixels 8169798
+in gpu 8169798
+K-means for foreground took: 38991 us
+done with kmeans
+beta: 0.00193281
+calcBeta: 0.00589397 seconds
+calcNWeights: 0.0182558 seconds
+
+
+Loaded Image ../dataset/large/museum.jpg
+1605 2407
+before bgd num pixels: 648849
+in gpu 648849
+K-means for background took: 15549 us
+before fgd num pixels 3214386
+in gpu 3214386
+K-means for foreground took: 29494 us
+done with kmeans
+beta: 0.00101401
+calcBeta: 0.0013816 seconds
+calcNWeights: 0.00731845 seconds
+
+
+Loaded Image ../dataset/large/tiger.jpg
+3008 2000
+before bgd num pixels: 1403826
+in gpu 1403826
+K-means for background took: 22526 us
+before fgd num pixels 4612174
+in gpu 4612174
+K-means for foreground took: 38696 us
+done with kmeans
+beta: 0.000325343
+calcBeta: 0.0016551 seconds
+calcNWeights: 0.00891923 seconds
+
+
+Loaded Image ../dataset/large/tiger2.jpg
+2216 3230
+before bgd num pixels: 3379686
+in gpu 3379686
+K-means for background took: 42642 us
+before fgd num pixels 3777994
+in gpu 3777994
+K-means for foreground took: 32870 us
+done with kmeans
+beta: 0.000928826
+calcBeta: 0.00233335 seconds
+calcNWeights: 0.0101646 seconds
+
+
+Loaded Image ../dataset/large/tower.jpg
+5200 4160
+before bgd num pixels: 10142752
+in gpu 10142752
+K-means for background took: 102031 us
+before fgd num pixels 11489248
+in gpu 11489248
+K-means for foreground took: 88362 us
+done with kmeans
+beta: 0.00229264
+calcBeta: 0.00526911 seconds
+calcNWeights: 0.0194778 seconds
+
+
+Loaded Image ../dataset/large/turt.jpg
+8192 5461
+before bgd num pixels: 24348527
+in gpu 24348527
+K-means for background took: 199685 us
+before fgd num pixels 20387985
+in gpu 20387985
+K-means for foreground took: 89071 us
+done with kmeans
+beta: 0.00195563
+calcBeta: 0.0143823 seconds
+calcNWeights: 0.082471 seconds
+
+
+Total time for background: 2014539.00 us
+Total time for foreground: 1394825.00 us
+Total time for Beta calculation: 0.11 us
+Total time for Weights calculation: 0.44 us
+
+
+Total time for background per image (/50): 40290.78 us
+Total time for foreground per image (/50): 27896.50 us
+Total time for Beta calculation per image (/50): 0.00 us
+Total time for Weights calculation per image (/50): 0.01 us

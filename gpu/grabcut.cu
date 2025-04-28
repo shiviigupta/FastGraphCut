@@ -450,16 +450,15 @@ void fastCalcConsts(image_t *img, double *leftW, double *upleftW, double *upW, d
     cudaDeviceSynchronize();
 
     beta += tmpBeta;
-    cout << "Int Beta: " << beta << endl;
 
     if (beta <= 0.0000001f)
         beta = 0;
     else
         beta = 1.f / (2 * beta / (4 * img->cols * img->rows - 3 * img->cols - 3 * img->rows + 2));
 
-    cout << "Beta: " << beta << endl;
+    cout << "beta: " << beta << endl;
     et = omp_get_wtime();
-    cout<< "GPU calcBeta ran for " <<(et-st)<< " seconds" <<endl;
+    cout<< "calcBeta: " <<(et-st)<< " seconds" <<endl;
 
     cudaMemcpyAsync(gpuLeftW, leftW, img->cols * sizeof(double), cudaMemcpyHostToDevice, streams[0]);
     cudaMemsetAsync(gpuUpLeftW, 0, img->cols * sizeof(float), streams[1]);
@@ -478,7 +477,7 @@ void fastCalcConsts(image_t *img, double *leftW, double *upleftW, double *upW, d
     cudaDeviceSynchronize();
 
     et = omp_get_wtime();
-    cout<< "GPU calcNWeights ran for " <<(et-st)<< " seconds" <<endl;
+    cout<< "calcNWeights: " <<(et-st)<< " seconds" <<endl;
 
     cudaMemcpyAsync(leftW, gpuLeftW, num_pixels * sizeof(double), cudaMemcpyDeviceToHost, streams[0]);
     cudaMemcpyAsync(upleftW, gpuUpLeftW, num_pixels * sizeof(double), cudaMemcpyDeviceToHost, streams[1]);
