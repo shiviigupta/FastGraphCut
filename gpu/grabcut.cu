@@ -5,13 +5,23 @@
 #include <cmath>
 #include <iterator>
 #include "grabcut.h"
-#include "graph.hpp"
+// #include "graph.hpp"
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <omp.h>
 #include <curand_kernel.h>
 
 #define COMPONENT_COUNT 5
+
+// GPU Tuning
+#define NUM_GPU_STREAMS 4
+// Max 640
+#define NUM_THREAD_BLOCKS 640
+// Max like 4*256 = 1024?
+#define THREADS_PER_BLOCK 32
+#define MAX_SHARED_MEM (64000/16)
+#define MAX_COLS (MAX_SHARED_MEM/6)
+
 using namespace std;
 
 typedef struct
@@ -233,60 +243,257 @@ void calcInverseCovAndDeterm(GMM_t *gmm, int ci, double singularFix)
     }
 }
 
-static double calcBeta(image_t *img)
-{
-    double beta = 0;
-    for (int y = 0; y < img->rows; y++)
-    {
-        for (int x = 0; x < img->cols; x++)
-        {
-            if (x > 0)
-                beta += dot_diff_rgb(get_r(img, y, x), get_g(img, y, x), get_b(img, y, x), get_r(img, y, x - 1), get_g(img, y, x - 1), get_b(img, y, x - 1));
-            if (y > 0 && x > 0)
-                beta += dot_diff_rgb(get_r(img, y, x), get_g(img, y, x), get_b(img, y, x), get_r(img, y - 1, x - 1), get_g(img, y - 1, x - 1), get_b(img, y - 1, x - 1));
-            if (y > 0)
-                beta += dot_diff_rgb(get_r(img, y, x), get_g(img, y, x), get_b(img, y, x), get_r(img, y - 1, x), get_g(img, y - 1, x), get_b(img, y - 1, x));
-            if (y > 0 && x < img->cols - 1)
-                beta += dot_diff_rgb(get_r(img, y, x), get_g(img, y, x), get_b(img, y, x), get_r(img, y - 1, x + 1), get_g(img, y - 1, x + 1), get_b(img, y - 1, x + 1));
+int cpu_dot_diff(image_t *img, uint64_t a_index, uint64_t b_index) {
+    int r = (int)(img->r[a_index]) - (int)(img->r[b_index]);
+    int g = (int)(img->g[a_index]) - (int)(img->g[b_index]);
+    int b = (int)(img->b[a_index]) - (int)(img->b[b_index]);
+    return (r * r) + (g * g) + (b * b);
+}
+
+// Calculate the first row on the CPU because it wouldn't utilize GPU shared
+// memory and otherwise the CPU would be sitting idle
+float cpuCalcBetaRowZero(image_t *img, double *leftW) {
+    float beta = 0;
+    float diff;
+    for (int i = 1; i < img->cols; i++) {
+        diff = cpu_dot_diff(img, i, i-1);
+        beta += diff;
+        leftW[i] = diff;
+    }
+
+    return beta;
+}
+
+__device__ float gpu_dot_diff(uint8_t *shared_mem, uint64_t a_index, uint64_t b_index, uint64_t width) {
+    int red = (int)(shared_mem[a_index]) - (int)(shared_mem[b_index]);
+    int green = (int)(shared_mem[a_index + 2*width]) - (int)(shared_mem[b_index+2*width]);
+    int blue = (int)(shared_mem[a_index+4*width]) - (int)(shared_mem[b_index+4*width]);
+    return (float)((red * red) + (green * green) + (blue * blue));
+}
+
+__global__ void fastCalcBeta(
+        uint8_t *pixels, uint64_t rows, uint64_t cols, int tile_width,
+        double *leftW, double *upleftW, double *upW, double *uprightW,
+        float *globalBeta
+) {
+    extern __shared__ uint8_t shared_mem[];
+
+    uint8_t *red = pixels;
+    uint8_t *green = pixels + (rows * cols);
+    uint8_t *blue = pixels + (2 * rows * cols);
+
+    int id = threadIdx.x;
+    // Need overlap on both left & right side
+    uint64_t horizontal_tiles = (cols + tile_width - 3) / (tile_width - 2);
+
+    float beta = 0.0;
+    // Row 0 will be done on CPU
+    for (uint64_t y = blockIdx.x + 1; y < rows; y+= gridDim.x) {
+
+        for (uint64_t j = 0; j < horizontal_tiles; j++) {
+            // Copy in 2 rows of the image into shared memory
+            uint64_t rel_col = j * tile_width - 2 * j;
+            for (uint64_t i = id; i < tile_width; i += blockDim.x) {
+                if (rel_col + i < cols) {
+                    uint64_t upper_offset = (y-1)*cols + rel_col + i;
+                    uint64_t lower_offset = y*cols + rel_col + i;
+
+
+                    shared_mem[i] = red[upper_offset];
+                    shared_mem[i+tile_width] = red[lower_offset];
+
+                    shared_mem[i+2*tile_width] = green[upper_offset];
+                    shared_mem[i+3*tile_width] = green[lower_offset];
+
+                    shared_mem[i+4*tile_width] = blue[upper_offset];
+                    shared_mem[i+5*tile_width] = blue[lower_offset];
+                }
+            }
+
+            // Process the two rows
+            uint64_t row_index = y * cols + rel_col;
+            for (uint64_t x = id; x < tile_width-1; x += blockDim.x)
+            {
+                uint64_t real_x = (j > 0) ? (rel_col + x + 1): (rel_col + x);
+                if (real_x < cols) {
+                    uint64_t base_index = tile_width+x + ((j > 0) ? 1 : 0);
+                    float diff;
+                    if (real_x > 0) // left
+                    {
+                        diff = gpu_dot_diff(shared_mem, base_index, base_index-1, tile_width);
+                        beta += diff;
+                        leftW[row_index + x] = diff;
+                    } else {
+                        leftW[row_index + x] = 0;
+                    }
+                    if (real_x > 0) // upleft
+                    {
+                        diff = gpu_dot_diff(shared_mem, base_index, base_index-tile_width-1, tile_width);
+                        beta += diff;
+                        upleftW[row_index + x] = diff;
+                    } else {
+                        upleftW[row_index + x] = 0;
+                    }
+
+                    // Up - Always Happens
+                    diff = gpu_dot_diff(shared_mem, base_index, base_index-tile_width, tile_width);
+                    beta += diff;
+                    upW[row_index + x] = diff;
+
+                    if (real_x < cols - 1) // upright
+                    {
+                        diff = gpu_dot_diff(shared_mem, base_index, base_index-tile_width+1, tile_width);
+                        beta += diff;
+                        uprightW[row_index + x] = diff;
+                    } else {
+                        uprightW[row_index + x] = 0;
+                    }
+                }
+            }
         }
     }
+
+    // __reduce_add_sync is undefined
+    for (int i=blockDim.x / 2; i >= 1; i/=2)
+        beta += __shfl_down_sync(0xffffffff, beta, i);
+
+    if (id == 0) atomicAdd(globalBeta, beta);
+}
+
+__global__ void fastCalcWeights(double *w, double beta, double gamma, uint64_t size)
+{
+    int id = threadIdx.x + blockDim.x * blockIdx.x;
+    int t = blockDim.x * gridDim.x;
+
+    uint64_t pixels_per_thread = (size + t - 1) / t;
+    uint64_t start = id * pixels_per_thread;
+    uint64_t count = min(pixels_per_thread, size-start);
+
+    uint64_t iters = (count + 7) / 8;
+    uint64_t i = start;
+    switch (count % 8) {
+        case 0: do {    w[i] = gamma * exp(-beta * w[i]); i++;
+        case 7:         w[i] = gamma * exp(-beta * w[i]); i++;
+        case 6:         w[i] = gamma * exp(-beta * w[i]); i++;
+        case 5:         w[i] = gamma * exp(-beta * w[i]); i++;
+        case 4:         w[i] = gamma * exp(-beta * w[i]); i++;
+        case 3:         w[i] = gamma * exp(-beta * w[i]); i++;
+        case 2:         w[i] = gamma * exp(-beta * w[i]); i++;
+        case 1:         w[i] = gamma * exp(-beta * w[i]); i++;
+                } while (--iters > 0);
+    }
+}
+
+void fastCalcConsts(image_t *img, double *leftW, double *upleftW, double *upW, double *uprightW, double gamma)
+{
+    double st, et;
+
+    double *gpuLeftW, *gpuUpLeftW, *gpuUpW, *gpuUpRightW;
+    uint8_t *gpuPixels;
+    float *gpuBeta, beta;
+    cudaStream_t streams[NUM_GPU_STREAMS];
+
+    uint64_t num_pixels = img->rows * img->cols;
+
+    cudaError_t err;
+    err = cudaMalloc(&gpuPixels, num_pixels * 3);
+    if (err != cudaSuccess){
+      cout<<"Pixel Memory not allocated"<<endl;
+      exit(-1);
+    }
+    err = cudaMalloc(&gpuLeftW, (size_t) num_pixels * sizeof(double));
+    if (err != cudaSuccess){
+      cout<<"Left Memory not allocated"<<endl;
+      exit(-1);
+    }
+    err = cudaMalloc(&gpuUpLeftW, (size_t) num_pixels * sizeof(double));
+    if (err != cudaSuccess){
+      cout<<"UpLeft Memory not allocated"<<endl;
+      exit(-1);
+    }
+    err = cudaMalloc(&gpuUpW, (size_t) num_pixels * sizeof(double));
+    if (err != cudaSuccess){
+      cout<<"Up Memory not allocated"<<endl;
+      exit(-1);
+    }
+    err = cudaMalloc(&gpuUpRightW, (size_t) num_pixels * sizeof(double));
+    if (err != cudaSuccess){
+      cout<<"UpRight Memory not allocated"<<endl;
+      exit(-1);
+    }
+    err = cudaMalloc(&gpuBeta, sizeof(float));
+    if (err != cudaSuccess){
+      cout<<"UpRight Memory not allocated"<<endl;
+      exit(-1);
+    }
+
+    for (int i = 0; i < NUM_GPU_STREAMS; i++)
+        cudaStreamCreateWithFlags(&streams[i], cudaStreamNonBlocking);
+
+    cudaMemcpy(gpuPixels, img->r, num_pixels, cudaMemcpyHostToDevice);
+    cudaMemcpy(gpuPixels + num_pixels, img->g, num_pixels, cudaMemcpyHostToDevice);
+    cudaMemcpy(gpuPixels + 2*num_pixels, img->b, num_pixels, cudaMemcpyHostToDevice);
+    cudaMemset(gpuBeta, 0, sizeof(float));
+
+
+    uint64_t tile_width = min(img->cols, MAX_COLS);
+    uint64_t shared_mem_size = 6 * tile_width;
+
+    st = omp_get_wtime();
+    // CalcBeta (potentially slower but more work)
+    fastCalcBeta<<<NUM_THREAD_BLOCKS,THREADS_PER_BLOCK, shared_mem_size, streams[0]>>>(
+            gpuPixels, img->rows, img->cols, tile_width,
+            gpuLeftW, gpuUpLeftW, gpuUpW, gpuUpRightW, gpuBeta);
+    cudaMemcpyAsync(&beta, gpuBeta, sizeof(int), cudaMemcpyDeviceToHost, streams[0]);
+
+    double tmpBeta = cpuCalcBetaRowZero(img, leftW);
+    cudaDeviceSynchronize();
+
+    beta += tmpBeta;
+    cout << "Int Beta: " << beta << endl;
 
     if (beta <= 0.0000001f)
         beta = 0;
     else
         beta = 1.f / (2 * beta / (4 * img->cols * img->rows - 3 * img->cols - 3 * img->rows + 2));
 
-    return beta;
-}
+    cout << "Beta: " << beta << endl;
+    et = omp_get_wtime();
+    cout<< "GPU calcBeta ran for " <<(et-st)<< " seconds" <<endl;
 
-static void calcNWeights(image_t *img, double *leftW, double *upleftW, double *upW, double *uprightW, double beta, double gamma)
-{
+    cudaMemcpyAsync(gpuLeftW, leftW, img->cols * sizeof(double), cudaMemcpyHostToDevice, streams[0]);
+    cudaMemsetAsync(gpuUpLeftW, 0, img->cols * sizeof(float), streams[1]);
+    cudaMemsetAsync(gpuUpW, 0, img->cols * sizeof(float), streams[2]);
+    cudaMemsetAsync(gpuUpRightW, 0, img->cols * sizeof(float), streams[3]);
+
+    // CalcNWeights (definitely faster)
+    st = omp_get_wtime();
     double gammaDivSqrt2 = gamma / sqrt(2.0);
-    uint64_t num_pixels = img->rows * img->cols;
 
-    for (int y = 0; y < img->rows; y++)
-    {
-        for (int x = 0; x < img->cols; x++)
-        {
-            int idx = y * img->cols + x;
-            if (x > 0)
-                leftW[idx] = gamma * exp(-beta * dot_diff_rgb(get_r(img, y, x), get_g(img, y, x), get_b(img, y, x), get_r(img, y, x - 1), get_g(img, y, x - 1), get_b(img, y, x - 1)));
-            else
-                leftW[idx] = 0;
-            if (x > 0 && y > 0)
-                upleftW[idx] = gammaDivSqrt2 * exp(-beta * dot_diff_rgb(get_r(img, y, x), get_g(img, y, x), get_b(img, y, x), get_r(img, y - 1, x - 1), get_g(img, y - 1, x - 1), get_b(img, y - 1, x - 1)));
-            else
-                upleftW[idx] = 0;
-            if (y > 0)
-                upW[idx] = gamma * exp(-beta * dot_diff_rgb(get_r(img, y, x), get_g(img, y, x), get_b(img, y, x), get_r(img, y - 1, x), get_g(img, y - 1, x), get_b(img, y - 1, x)));
-            else
-                upW[idx] = 0;
-            if (x < img->cols - 1 && y > 0)
-                uprightW[idx] = gammaDivSqrt2 * exp(-beta * dot_diff_rgb(get_r(img, y, x), get_g(img, y, x), get_b(img, y, x), get_r(img, y - 1, x + 1), get_g(img, y - 1, x + 1), get_b(img, y - 1, x + 1)));
-            else
-                uprightW[idx] = 0;
-        }
-    }
+    fastCalcWeights<<<NUM_THREAD_BLOCKS/8,THREADS_PER_BLOCK,0,streams[0]>>>(gpuLeftW, beta, gamma, num_pixels);
+    fastCalcWeights<<<NUM_THREAD_BLOCKS/8,THREADS_PER_BLOCK,0,streams[1]>>>(gpuUpLeftW, beta, gammaDivSqrt2, num_pixels);
+    fastCalcWeights<<<NUM_THREAD_BLOCKS/8,THREADS_PER_BLOCK,0,streams[2]>>>(gpuUpW, beta, gamma, num_pixels);
+    fastCalcWeights<<<NUM_THREAD_BLOCKS/8,THREADS_PER_BLOCK,0,streams[3]>>>(gpuUpRightW, beta, gammaDivSqrt2, num_pixels);
+
+    cudaDeviceSynchronize();
+
+    et = omp_get_wtime();
+    cout<< "GPU calcNWeights ran for " <<(et-st)<< " seconds" <<endl;
+
+    cudaMemcpyAsync(leftW, gpuLeftW, num_pixels * sizeof(double), cudaMemcpyDeviceToHost, streams[0]);
+    cudaMemcpyAsync(upleftW, gpuUpLeftW, num_pixels * sizeof(double), cudaMemcpyDeviceToHost, streams[1]);
+    cudaMemcpyAsync(upW, gpuUpW, num_pixels * sizeof(double), cudaMemcpyDeviceToHost, streams[2]);
+    cudaMemcpyAsync(uprightW, gpuUpRightW, num_pixels * sizeof(double), cudaMemcpyDeviceToHost, streams[3]);
+
+    cudaDeviceSynchronize();
+
+    cudaFree(gpuLeftW);
+    cudaFree(gpuUpLeftW);
+    cudaFree(gpuUpW);
+    cudaFree(gpuUpRightW);
+
+    for (int i = 0; i < NUM_GPU_STREAMS; i++)
+        cudaStreamDestroy(streams[i]);
 }
 
 // Technically should have a checkMask fn
@@ -306,7 +513,7 @@ static void initMaskWithRect(mask_t *mask, rect_t rect, image_t *img)
     int remaining_height = img->rows - start_y;
     int end_y = rect.height < remaining_height ? rect.height : remaining_height;
     end_y += start_y;
-    int margin = 15;
+    // int margin = 15;
     for (int r = start_y; r < end_y; r++)
     {
         for (int c = start_x; c < start_x + width; c++)
@@ -320,95 +527,6 @@ static void initMaskWithRect(mask_t *mask, rect_t rect, image_t *img)
         }
     }
 }
-
-/*
-void kmeans(pixel_t *pixels, int num_pixels, int k, int num_clusters, int max_iters, int *labels)
-{
-    // labels = (int *)malloc(num_pixels * sizeof(int));
-    // Allocate centroids
-    Centroid *centroids = (Centroid *)malloc(num_clusters * sizeof(Centroid));
-    Centroid *new_centroids = (Centroid *)malloc(num_clusters * sizeof(Centroid));
-    int *counts = (int *)malloc(num_clusters * sizeof(int));
-
-    // Set initial cluster centers randomly
-    for (int i = 0; i < num_clusters; ++i)
-    {
-        int idx = rand() % num_pixels;
-        centroids[i].r = pixels[idx].r;
-        centroids[i].g = pixels[idx].g;
-        centroids[i].b = pixels[idx].b;
-    }
-
-    for (int iter = 0; iter < max_iters; ++iter)
-    {
-        // Reset accumulators
-        for (int i = 0; i < num_clusters; ++i)
-        {
-            new_centroids[i].r = 0;
-            new_centroids[i].g = 0;
-            new_centroids[i].b = 0;
-            counts[i] = 0;
-        }
-
-        // Assign labels based on nearest centroid
-        for (int i = 0; i < num_pixels; ++i)
-        {
-            float min_dist = INFINITY;
-            int label = 0;
-            for (int j = 0; j < num_clusters; ++j)
-            {
-                float dist = distance_squared(pixels[i], centroids[j]);
-                if (dist < min_dist)
-                {
-                    min_dist = dist;
-                    label = j;
-                }
-            }
-            labels[i] = label;
-            new_centroids[label].r += pixels[i].r;
-            new_centroids[label].g += pixels[i].g;
-            new_centroids[label].b += pixels[i].b;
-            counts[label]++;
-        }
-
-        // Update centroids
-        int converged = 1;
-        for (int i = 0; i < num_clusters; ++i)
-        {
-            if (counts[i] == 0)
-                continue; // avoid division by zero
-
-            Centroid updated = {
-                new_centroids[i].r / counts[i],
-                new_centroids[i].g / counts[i],
-                new_centroids[i].b / counts[i]};
-
-            // Check if centroid has changed significantly
-            // pixel_t estimate_center = {(uint8_t)centroids[i].r, (uint8_t)centroids[i].g, (uint8_t)centroids[i].b};
-            // float shift = distance_squared(estimate_center, updated);
-
-            float shift =
-                (centroids[i].r - updated.r) * (centroids[i].r - updated.r) +
-                (centroids[i].g - updated.g) * (centroids[i].g - updated.g) +
-                (centroids[i].b - updated.b) * (centroids[i].b - updated.b);
-
-            if (shift > 1e-4f)
-            {
-                converged = 0;
-            }
-
-            centroids[i] = updated;
-        }
-
-        if (converged)
-            break;
-    }
-
-    free(centroids);
-    free(new_centroids);
-    free(counts);
-}
-*/
 
 __global__ void kmeans_gpu(
     uint8_t *r, uint8_t *g, uint8_t *b, int num_pixels,
@@ -426,14 +544,14 @@ __global__ void kmeans_gpu(
     __shared__ uint8_t red[256];  //= r[block_id * num_bytes];
     __shared__ uint8_t green[256]; //= g[block_id * num_bytes];
     __shared__ uint8_t blue[256]; //= b[block_id * num_bytes];
-    
+
     for (int i = 0; i < num_bytes; i++)
     {
       red[i] = r[(num_bytes * block_id) + i];
       green[i] = g[(num_bytes * block_id) + i];
       blue[i] = b[(num_bytes * block_id) + i];;
     }
-   
+
     int id = blockIdx.x * blockDim.x + threadIdx.x; // and/or y
     int tid = threadIdx.x;                          // thread id within block
 
@@ -497,15 +615,13 @@ __global__ void kmeans_gpu(
     }
 }
 
-/*
-  Initialize GMM background and foreground models using kmeans algorithm.
-*/
+// Initialize GMM background and foreground models using kmeans algorithm.
 static void initGMMs(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_t *fgdGMM)
 {
 
     // More realistically, we should only definitely put the kmean's num_pixels for loop in the kernel, not entire kmeans algorithm
     int kMeansItCount = 10;
-    int k = 5;
+    // int k = 5;
     std::vector<uint8_t> bgdR, bgdG, bgdB;
     std::vector<uint8_t> fgdR, fgdG, fgdB;
 
@@ -625,10 +741,10 @@ static void initGMMs(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_t *fgdGMM)
         }
         cudaMemcpy(dev_centroids, f_centroids, num_clusters * sizeof(Centroid), cudaMemcpyHostToDevice);
 
-        
+
         int numBlocks = (fgd_size + threadsPerBlock - 1) / (threadsPerBlock);
         std::cout << "before fgd num pixels " << fgd_size << endl;
-        
+
         auto start = std::chrono::high_resolution_clock::now();
         kmeans_gpu<<<numBlocks, threadsPerBlock>>>(d_fgdR, d_fgdG, d_fgdB, fgd_size,
                                                    dev_centroids, new_centroids, counts, dev_fgdLabels, num_clusters, kMeansItCount);
@@ -669,6 +785,7 @@ static void initGMMs(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_t *fgdGMM)
     endLearning(fgdGMM);
 }
 
+/*
 static void assignGMMsComponents(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_t *fgdGMM, int *compIdxs)
 {
     for (int r = 0; r < img->rows; r++)
@@ -682,10 +799,10 @@ static void assignGMMsComponents(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_
         }
     }
 }
+*/
 
 /*
-  Learn GMMs parameters.
-*/
+// Learn GMMs parameters.
 static void learnGMMs(image_t *img, mask_t *mask, int *compIdxs, GMM_t *bgdGMM, GMM_t *fgdGMM, int iter)
 {
     initLearning(bgdGMM);
@@ -735,9 +852,11 @@ static void learnGMMs(image_t *img, mask_t *mask, int *compIdxs, GMM_t *bgdGMM, 
     // std::cout << "FGD GMM means weights after learning:" << std::endl;
     endLearning(fgdGMM);
 }
+*/
 
+/*
 static void constructGCGraph(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_t *fgdGMM, double lambda,
-                             weight_t leftW, weight_t upleftW, weight_t upW, weight_t uprightW,
+                             double *leftW, double *upleftW, double *upW, double *uprightW,
                              GCGraph<double> &graph)
 {
     if (img == NULL || mask == NULL || bgdGMM == NULL || fgdGMM == NULL)
@@ -804,7 +923,9 @@ static void constructGCGraph(image_t *img, mask_t *mask, GMM_t *bgdGMM, GMM_t *f
         }
     }
 }
+*/
 
+/*
 static void estimateSegmentation(GCGraph<double> &graph, mask_t *mask)
 {
     int flow = graph.maxFlow();
@@ -816,7 +937,7 @@ static void estimateSegmentation(GCGraph<double> &graph, mask_t *mask)
             MaskVal m = mask_at(mask, r, c);
             if (m == GC_PR_BGD || m == GC_PR_FGD)
             {
-                if (graph.inSourceSegment(r * mask->cols + c /*vertex index*/))
+                if (graph.inSourceSegment(r * mask->cols + c ))
                 {
                     // cout << "mask[" << r << "][" << c << "] = " << m;
                     mask_set(mask, r, c, GC_PR_FGD);
@@ -832,6 +953,7 @@ static void estimateSegmentation(GCGraph<double> &graph, mask_t *mask)
         }
     }
 }
+*/
 
 void displayImage(image_t *img)
 {
@@ -868,7 +990,6 @@ void gettingOutput(image_t *img, mask_t *mask, image_t *foreground, image_t *bac
 void grabCut(image_t *img, rect_t rect, image_t *foreground, image_t *background, int iterCount)
 {
     int num_pixels = img->rows * img->cols;
-    // std::cout << "grabCut called\n";
 
     GMM_t *bgdGMM, *fgdGMM;
     bgdGMM = (GMM_t *)malloc(sizeof(GMM_t));
@@ -878,43 +999,23 @@ void grabCut(image_t *img, rect_t rect, image_t *foreground, image_t *background
     initEmptyGMM(bgdGMM);
     initEmptyGMM(fgdGMM);
 
-    // std::cout << "init GMMs\n";
     int *compIdxs = (int *)malloc(num_pixels * sizeof(int));
 
     initMaskWithRect(mask, rect, img);
-    // gettingOutput(img, mask, foreground, background);
-    // displayImage(foreground);
-    // displayImage(background);
-    //  cout << "After init mask with rect\n";
     initGMMs(img, mask, bgdGMM, fgdGMM);
-    // cout << "init gmms again\n";
 
     if (iterCount <= 0)
         return;
 
     const double gamma = 50;
-    const double lambda = 9 * gamma;
-
-    const double beta = calcBeta(img);
+    // const double lambda = 9 * gamma;
 
     double *leftW, *upleftW, *upW, *uprightW;
-    leftW = (double *)calloc(num_pixels, sizeof(double));
-    upleftW = (double *)calloc(num_pixels, sizeof(double));
-    upW = (double *)calloc(num_pixels, sizeof(double));
-    uprightW = (double *)calloc(num_pixels, sizeof(double));
-    calcNWeights(img, leftW, upleftW, upW, uprightW, beta, gamma);
-
-    /*
-    std::cout << "Left edge weights sample:" << std::endl;
-    for (int y = 0; y < 5; ++y) {
-        for (int x = 0; x < 5; ++x) {
-            std::cout << leftW[x + (img->cols)*y] << " ";
-        }
-        std::cout << std::endl;
-    } */
-
-    // cout << "After calc nweights\n";
-    // std::cout << "Gamma: " << gamma << std::endl;
+    leftW = (double *)malloc(num_pixels * sizeof(double));
+    upleftW = (double *)malloc(num_pixels *  sizeof(double));
+    upW = (double *)malloc(num_pixels * sizeof(double));
+    uprightW = (double *)malloc(num_pixels * sizeof(double));
+    fastCalcConsts(img, leftW, upleftW, upW, uprightW, gamma);
 
     // for (int i = 0; i < iterCount; i++) //i< iterCount
     // {
@@ -935,7 +1036,7 @@ int main(int argc, char **argv)
 {
     if (argc < 2)
     {
-        std::cerr << "Usage: ./SlowGrabCut <image_path> [x1 y1 x2 y2]" << std::endl;
+        std::cerr << "Usage: ./FastGrabCut <image_path> [x1 y1 x2 y2]" << std::endl;
         return -1;
     }
 
@@ -956,6 +1057,8 @@ int main(int argc, char **argv)
     img->g = (uint8_t *)malloc(img->rows * img->cols * sizeof(uint8_t));
     img->b = (uint8_t *)malloc(img->rows * img->cols * sizeof(uint8_t));
 
+    cout << img->rows << " " << img->cols << endl;
+
     image_t *foreground = (image_t *)malloc(sizeof(image_t));
     image_t *background = (image_t *)malloc(sizeof(image_t));
 
@@ -975,12 +1078,6 @@ int main(int argc, char **argv)
         {
             cv::Vec3b color = image.at<cv::Vec3b>(r, c);
             set_rgb(img, r, c, color[2], color[1], color[0]);
-
-            /*
-            img->array[r * img->cols + c].r = color[2];
-            img->array[r * img->cols + c].g = color[1];
-            img->array[r * img->cols + c].b = color[0];
-            */
         }
     }
     uint64_t x1 = 0, y1 = 0, x2 = img->cols - 1, y2 = img->rows - 1;
