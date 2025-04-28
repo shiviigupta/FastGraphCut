@@ -541,16 +541,6 @@ __global__ void kmeans_gpu(
     __shared__ float local_sum_g[5];
     __shared__ float local_sum_b[5];
     __shared__ int local_count[5];
-    __shared__ uint8_t red[256];  //= r[block_id * num_bytes];
-    __shared__ uint8_t green[256]; //= g[block_id * num_bytes];
-    __shared__ uint8_t blue[256]; //= b[block_id * num_bytes];
-
-    for (int i = 0; i < num_bytes; i++)
-    {
-      red[i] = r[(num_bytes * block_id) + i];
-      green[i] = g[(num_bytes * block_id) + i];
-      blue[i] = b[(num_bytes * block_id) + i];;
-    }
 
     int id = blockIdx.x * blockDim.x + threadIdx.x; // and/or y
     int tid = threadIdx.x;                          // thread id within block
@@ -575,9 +565,9 @@ __global__ void kmeans_gpu(
         }
         __syncthreads();
 
-        float ri = red[id];
-        float gi = green[id];
-        float bi = blue[id];
+        float ri = r[id];
+        float gi = g[id];
+        float bi = b[id];
 
         float min_dist = INFINITY;
         int label = 0;
