@@ -12,26 +12,26 @@ This project implements a parallelized version of the GrabCut image segmentation
 
 ## Build
 
-- mkdir build
-- cd build
-- cmake ..
+- `mkdir build`
+- `cd build`
+- `cmake ..`
 
 ## Running sequential version
 
-- cd build
-- make
-- ./SlowGrabCut <image_path> x1 y1 x2 y2
+- `cd build`
+- `make`
+- `./SlowGrabCut <image_path> x1 y1 x2 y2`
 
 Where image_path is the path to your image, and x1, y1, x2, y2 are the coordinates of the bounding box.
 
-e.g. ./SlowGrabCut ../dataset/large/flower.jpg 531 300 3383 2101
+e.g. `./SlowGrabCut ../dataset/large/flower.jpg 531 300 3383 2101`
 
 ## Running parallelized version
 
-- cd build
-- make
-- ./FastGrabCut <image_path> x1 y1 x2 y2
+- `cd build`
+- `make`
+- `./FastGrabCut <image_path> x1 y1 x2 y2`
 
 Where image_path is the path to your image, and x1, y1, x2, y2 are the coordinates of the bounding box.
 
-e.g. ./FastGrabCut ../dataset/large/flower.jpg 531 300 3383 2101
+e.g. `./FastGrabCut ../dataset/large/flower.jpg 531 300 3383 2101`
